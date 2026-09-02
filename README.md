@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 `x-cmd` is a command-line wrapper and manager for xray-core. Every operation is available as a script-friendly command, while running it without arguments opens an interactive menu.
 
-> **GitHub access is optional:** In regions without direct GitHub access, installation supports a GitHub mirror domain. The installer saves this setting, and `x-cmd` reuses it for future xray-core downloads and application updates.
+> **GitHub access is optional:** In regions without direct GitHub access, installation supports a GitHub mirror prefix. The installer saves this setting, and `x-cmd` reuses it for future xray-core downloads and application updates.
 >
-> The current GitHub mirror domain is `github.uzfdafw.cc`.
+> The current GitHub mirror is `https://github.uzfdafw.cc`.
 
 ## Features
 
@@ -29,43 +29,43 @@ English | [简体中文](README.zh-CN.md)
 ### Linux and macOS
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scripts/install.sh
+curl -fsSLO https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh
 sh install.sh
 ```
 
 Install a specific version/location or use a GitHub mirror:
 
 ```sh
-sh install.sh --version v0.4.0 --install-dir "$HOME/.local/bin"
+sh install.sh --version v0.4.1 --install-dir "$HOME/.local/bin"
 sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
-The mirror domain replaces the scheme and host while preserving the original GitHub path:
+The mirror address is prepended to the complete GitHub URL:
 
 ```text
 https://github.com/accloud-proj/x-cmd/releases/latest/download/...
-https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/...
+https://github.uzfdafw.cc/https://github.com/accloud-proj/x-cmd/releases/latest/download/...
 ```
 
 If GitHub itself is unreachable, fetch the installer from the mirrored Release URL first:
 
 ```sh
 MIRROR="https://github.uzfdafw.cc"
-curl -fsSL "$MIRROR/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
+curl -fsSL "$MIRROR/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
 sh install.sh --github-mirror "$MIRROR"
 ```
 
 ### Windows PowerShell
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scripts/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.ps1 -OutFile install.ps1
 .\install.ps1
 ```
 
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.4.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
+.\install.ps1 -Version v0.4.1 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
 .\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
 
@@ -73,7 +73,7 @@ To obtain the PowerShell installer through the mirror:
 
 ```powershell
 $mirror = "https://github.uzfdafw.cc"
-Invoke-WebRequest "$mirror/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
+Invoke-WebRequest "$mirror/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
 .\install.ps1 -GitHubMirror $mirror
 ```
 
@@ -200,7 +200,7 @@ x-cmd github-mirror delete
 
 ## Release Builds
 
-[The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.4.0` creates a Release with archives and `checksums.txt`.
+[The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.4.1` creates a Release with archives and `checksums.txt`.
 
 ## Data Directory
 

@@ -9,9 +9,9 @@
 
 `x-cmd` 是一个 xray-core 命令行封装和管理工具。全部操作均支持适合脚本调用的命令参数，无参数运行时则进入交互式菜单。
 
-> **无需直连 GitHub：** 在无法直接访问 GitHub 的地区，安装时可使用 GitHub 镜像域名。安装器会保存该设置，后续下载 xray-core 内核和更新软件时自动继续使用。
+> **无需直连 GitHub：** 在无法直接访问 GitHub 的地区，安装时可使用 GitHub 镜像前缀。安装器会保存该设置，后续下载 xray-core 内核和更新软件时自动继续使用。
 >
-> 当前 GitHub 镜像站域名为 `github.uzfdafw.cc`。
+> 当前 GitHub 镜像站为 `https://github.uzfdafw.cc`。
 
 ## 功能
 
@@ -29,43 +29,43 @@
 ### Linux 和 macOS
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scripts/install.sh
+curl -fsSLO https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh
 sh install.sh
 ```
 
 指定版本、安装目录或 GitHub 镜像：
 
 ```sh
-sh install.sh --version v0.4.0 --install-dir "$HOME/.local/bin"
+sh install.sh --version v0.4.1 --install-dir "$HOME/.local/bin"
 sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
-镜像域名会替换 GitHub URL 的协议和主机，同时保留原始路径。例如：
+镜像地址会添加到完整 GitHub URL 之前。例如：
 
 ```text
 https://github.com/accloud-proj/x-cmd/releases/latest/download/...
-https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/...
+https://github.uzfdafw.cc/https://github.com/accloud-proj/x-cmd/releases/latest/download/...
 ```
 
 如果 GitHub 本身无法访问，可以先通过镜像中的 Release 地址下载安装脚本：
 
 ```sh
 MIRROR="https://github.uzfdafw.cc"
-curl -fsSL "$MIRROR/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
+curl -fsSL "$MIRROR/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
 sh install.sh --github-mirror "$MIRROR"
 ```
 
 ### Windows PowerShell
 
 ```powershell
-Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scripts/install.ps1 -OutFile install.ps1
+Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.ps1 -OutFile install.ps1
 .\install.ps1
 ```
 
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.4.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
+.\install.ps1 -Version v0.4.1 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
 .\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
 
@@ -73,7 +73,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scri
 
 ```powershell
 $mirror = "https://github.uzfdafw.cc"
-Invoke-WebRequest "$mirror/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
+Invoke-WebRequest "$mirror/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
 .\install.ps1 -GitHubMirror $mirror
 ```
 
@@ -200,7 +200,7 @@ x-cmd github-mirror delete
 
 ## 自动构建与发布
 
-[发布工作流](.github/workflows/release.yml)构建 Windows amd64/arm64/386、Linux amd64/arm64/armv7 和 macOS amd64/arm64。推送例如 `v0.4.0` 的标签会创建 Release，并上传各平台压缩包及 `checksums.txt`。
+[发布工作流](.github/workflows/release.yml)构建 Windows amd64/arm64/386、Linux amd64/arm64/armv7 和 macOS amd64/arm64。推送例如 `v0.4.1` 的标签会创建 Release，并上传各平台压缩包及 `checksums.txt`。
 
 ## 数据目录
 

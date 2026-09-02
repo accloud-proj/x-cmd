@@ -11,9 +11,9 @@ usage() {
 Install x-cmd from GitHub Releases.
 
 Usage: install.sh [options]
-  --version VERSION       Release version, for example v0.4.0 (default: latest)
+  --version VERSION       Release version, for example v0.4.1 (default: latest)
   --install-dir DIR       Installation directory (default: ~/.local/bin)
-  --github-mirror DOMAIN  GitHub mirror domain, for example github.uzfdafw.cc
+  --github-mirror URL     GitHub mirror prefix, for example https://github.uzfdafw.cc
   -h, --help              Show this help
 EOF
 }
@@ -58,10 +58,11 @@ else
 fi
 
 github_url() {
+  target="https://github.com/${REPOSITORY}/releases/${RELEASE_PATH}/$1"
   if [ -n "$GITHUB_MIRROR" ]; then
-    printf '%s/%s/releases/%s/%s' "$GITHUB_MIRROR" "$REPOSITORY" "$RELEASE_PATH" "$1"
+  printf '%s/%s' "$GITHUB_MIRROR" "$target"
   else
-    printf 'https://github.com/%s/releases/%s/%s' "$REPOSITORY" "$RELEASE_PATH" "$1"
+  printf '%s' "$target"
   fi
 }
 

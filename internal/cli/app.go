@@ -160,7 +160,7 @@ func (a *App) config(args []string) error {
 	}
 	flags := newFlagSet("config set")
 	downloadURL := flags.String("download-url", "", "xray release 下载基地址")
-	githubMirror := flags.String("github-mirror", "", "GitHub 镜像域名")
+	githubMirror := flags.String("github-mirror", "", "GitHub 镜像前缀")
 	xrayPath := flags.String("xray-path", "", "xray 可执行文件路径")
 	testURL := flags.String("test-url", "", "节点测试 URL")
 	listenPort := flags.Int("listen-port", 1091, "本地 mixed 代理端口")

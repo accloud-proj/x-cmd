@@ -28,8 +28,9 @@ else {
 }
 
 function Get-GitHubUrl([string]$FileName) {
-    if ($GitHubMirror) { return "$GitHubMirror/$repository/releases/$releasePath/$FileName" }
-    return "https://github.com/$repository/releases/$releasePath/$FileName"
+    $target = "https://github.com/$repository/releases/$releasePath/$FileName"
+    if ($GitHubMirror) { return "$GitHubMirror/$target" }
+    return $target
 }
 
 $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("x-cmd-" + [guid]::NewGuid())
