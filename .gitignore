@@ -1,0 +1,6 @@
+/x-cmd
+/x-cmd.exe
+
+.vscode/
+.idea/
+.vs/
