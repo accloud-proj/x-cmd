@@ -9,7 +9,7 @@
 
 `x-cmd` 是一个 xray-core 命令行封装和管理工具。全部操作均支持适合脚本调用的命令参数，无参数运行时则进入交互式菜单。
 
-> **无需直连 GitHub：** 安装器和客户端内置镜像加速能力。未手动指定镜像时会优先直连 GitHub，连接失败后自动切换内置镜像，也支持通过参数手动切换镜像。
+> **无需直连 GitHub：** 安装器和客户端会优先直连 GitHub，失败后自动切换内置镜像。自动选中的镜像会写入配置，后续 GitHub 请求会持续使用，直到手动修改或删除。
 
 ## 功能
 
@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 指定版本或 GitHub 镜像：
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.7.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.8.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.7.0
+.\install.ps1 -Version v0.8.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -101,26 +101,26 @@ x-cmd config set --xray-path /path/to/xray
 ```sh
 x-cmd sub add --name "订阅 A" --url "https://example.com/subscription"
 x-cmd sub list
-x-cmd sub edit <ID> --name "新名称" --url "https://example.com/new"
-x-cmd sub update <ID>
+x-cmd sub edit <序号或名称> --name "新名称" --url "https://example.com/new"
+x-cmd sub update <序号或名称>
 x-cmd sub update all
-x-cmd sub nodes <ID>
-x-cmd sub delete <ID>
+x-cmd sub nodes <序号或名称>
+x-cmd sub delete <序号或名称>
 
 x-cmd node add --uri "vless://..."
 x-cmd node list
-x-cmd node list --subscription <订阅ID>
+x-cmd node list --subscription <订阅序号或名称>
 x-cmd node use <序号或节点ID>
 x-cmd node delete <序号或节点ID>
 ```
 
-选择和删除节点时可使用列表序号或能够唯一匹配的 ID 前缀。更新订阅只替换该订阅所属节点，并保留独立导入节点。删除活动节点会停止正在运行的连接并自动选择下一个可用节点；连接运行时切换节点会使用新节点自动重启连接。
+订阅操作可使用列表序号或完整名称。交互式订阅菜单中的“节点管理”会打开完整节点菜单，但只显示和操作当前订阅的节点。选择和删除节点时可使用列表序号或能够唯一匹配的 ID 前缀。更新订阅只替换该订阅所属节点，并保留独立导入节点。删除活动节点会停止正在运行的连接并自动选择下一个可用节点；连接运行时切换节点会使用新节点自动重启连接。
 
 ## 连接测试
 
 ```sh
 x-cmd node test --timeout 10s
-x-cmd node test --subscription <ID> --timeout 10s --delete-invalid
+x-cmd node test --subscription <订阅序号或名称> --timeout 10s --delete-invalid
 x-cmd config set --test-url "https://example.com/generate_204"
 ```
 
@@ -159,7 +159,7 @@ x-cmd github-mirror set https://your-mirror.example
 x-cmd github-mirror delete
 ```
 
-`set` 会切换到指定镜像，`delete` 会恢复自动模式（优先直连 GitHub，失败后使用内置镜像）。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
+`set` 会切换到指定镜像，`delete` 会恢复自动检测；此后若 GitHub 直连失败，内置镜像会再次被选中并持久保存。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
 
 ## 卸载
 

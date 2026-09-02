@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,12 +24,23 @@ type Release struct {
 	Draft       bool      `json:"draft"`
 }
 
+type releaseFeed struct {
+	Entries []struct {
+		Title   string    `xml:"title"`
+		Updated time.Time `xml:"updated"`
+	} `xml:"entry"`
+}
+
 func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Accept", "application/vnd.github+json")
+	if strings.HasSuffix(strings.Split(endpoint, "?")[0], ".atom") {
+		request.Header.Set("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
+	} else {
+		request.Header.Set("Accept", "application/vnd.github+json")
+	}
 	request.Header.Set("User-Agent", "x-cmd")
 	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
 	if err != nil {
@@ -39,7 +51,15 @@ func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 		return nil, fmt.Errorf("获取 Xray Release 失败: HTTP %s", response.Status)
 	}
 	var releases []Release
-	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
+	if strings.Contains(response.Header.Get("Content-Type"), "xml") || strings.HasSuffix(strings.Split(endpoint, "?")[0], ".atom") {
+		var feed releaseFeed
+		if err := xml.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&feed); err != nil {
+			return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
+		}
+		for _, entry := range feed.Entries {
+			releases = append(releases, Release{TagName: strings.TrimSpace(entry.Title), PublishedAt: entry.Updated})
+		}
+	} else if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
 		return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
 	}
 	result := make([]Release, 0, limit)

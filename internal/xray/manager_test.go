@@ -26,3 +26,24 @@ func TestRecentReleasesFiltersDraftsAndLimitsResults(t *testing.T) {
 		t.Fatalf("unexpected releases: %#v", releases)
 	}
 }
+
+func TestRecentReleasesParsesAtomFeed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if accept := request.Header.Get("Accept"); accept != "application/atom+xml, application/xml;q=0.9, */*;q=0.8" {
+			t.Errorf("unexpected Accept header: %q", accept)
+		}
+		writer.Header().Set("Content-Type", "application/atom+xml")
+		_, _ = writer.Write([]byte(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">
+<entry><title>v26.9.1</title><updated>2026-09-01T00:00:00Z</updated></entry>
+<entry><title>v26.8.1</title><updated>2026-08-01T00:00:00Z</updated></entry>
+</feed>`))
+	}))
+	defer server.Close()
+	releases, err := RecentReleases(context.Background(), server.URL+"/releases.atom", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(releases) != 1 || releases[0].TagName != "v26.9.1" {
+		t.Fatalf("unexpected releases: %#v", releases)
+	}
+}

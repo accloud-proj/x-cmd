@@ -9,7 +9,7 @@ English | [简体中文](README.zh-CN.md)
 
 `x-cmd` is a command-line wrapper and manager for xray-core. Every operation is available as a script-friendly command, while running it without arguments opens an interactive menu.
 
-> **GitHub access is optional:** The installers and client include mirror acceleration. Without a manually configured mirror, they try GitHub first and automatically switch to the built-in mirror when direct access fails. A custom mirror can also be selected explicitly.
+> **GitHub access is optional:** The installers and client try GitHub first, then switch to the built-in mirror when direct access fails. The selected fallback is saved and used for subsequent GitHub requests until it is manually changed or deleted.
 
 ## Features
 
@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Install a specific version or use a GitHub mirror:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.7.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.8.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.7.0
+.\install.ps1 -Version v0.8.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -101,26 +101,26 @@ x-cmd config set --xray-path /path/to/xray
 ```sh
 x-cmd sub add --name "Provider A" --url "https://example.com/subscription"
 x-cmd sub list
-x-cmd sub edit <ID> --name "New name" --url "https://example.com/new"
-x-cmd sub update <ID>
+x-cmd sub edit <NUMBER_OR_NAME> --name "New name" --url "https://example.com/new"
+x-cmd sub update <NUMBER_OR_NAME>
 x-cmd sub update all
-x-cmd sub nodes <ID>
-x-cmd sub delete <ID>
+x-cmd sub nodes <NUMBER_OR_NAME>
+x-cmd sub delete <NUMBER_OR_NAME>
 
 x-cmd node add --uri "vless://..."
 x-cmd node list
-x-cmd node list --subscription <SUBSCRIPTION_ID>
+x-cmd node list --subscription <SUBSCRIPTION_NUMBER_OR_NAME>
 x-cmd node use <NUMBER_OR_NODE_ID>
 x-cmd node delete <NUMBER_OR_NODE_ID>
 ```
 
-Node selection and deletion accept the displayed number or an unambiguous ID prefix. Subscription updates replace only nodes owned by that subscription and preserve standalone nodes. Deleting the active node stops a running connection and selects the next available node. Switching nodes while connected restarts the connection with the new node.
+Subscription operations accept the displayed number or exact name. In the interactive subscription menu, Node Management opens the full node menu filtered to that subscription. Node selection and deletion accept the displayed number or an unambiguous ID prefix. Subscription updates replace only nodes owned by that subscription and preserve standalone nodes. Deleting the active node stops a running connection and selects the next available node. Switching nodes while connected restarts the connection with the new node.
 
 ## Connection Testing
 
 ```sh
 x-cmd node test --timeout 10s
-x-cmd node test --subscription <ID> --timeout 10s --delete-invalid
+x-cmd node test --subscription <SUBSCRIPTION_NUMBER_OR_NAME> --timeout 10s --delete-invalid
 x-cmd config set --test-url "https://example.com/generate_204"
 ```
 
@@ -159,7 +159,7 @@ x-cmd github-mirror set https://your-mirror.example
 x-cmd github-mirror delete
 ```
 
-`set` selects a custom mirror, while `delete` restores automatic mode (GitHub first, then the built-in mirror on failure). `x-cmd config show` and `x-cmd config set --github-mirror URL` remain available.
+`set` selects a custom mirror, while `delete` restores automatic detection. If direct GitHub access then fails, the built-in mirror is selected and persisted again. `x-cmd config show` and `x-cmd config set --github-mirror URL` remain available.
 
 ## Uninstall
 

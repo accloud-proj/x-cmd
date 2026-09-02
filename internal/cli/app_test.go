@@ -33,11 +33,61 @@ func TestWaitForMenuShowsCountdown(t *testing.T) {
 		pause:  func(duration time.Duration) { pauses = append(pauses, duration) },
 	}
 	app.waitForMenu(2)
-	if got := output.String(); !strings.Contains(got, "2 秒后返回") || !strings.Contains(got, "1 秒后返回") {
-		t.Fatalf("countdown missing from output: %q", got)
+	if got := output.String(); got != "\n[提示] 2 秒后返回\n" {
+		t.Fatalf("unexpected countdown output: %q", got)
 	}
-	if len(pauses) != 2 || pauses[0] != time.Second || pauses[1] != time.Second {
+	if len(pauses) != 1 || pauses[0] != 2*time.Second {
 		t.Fatalf("unexpected pauses: %#v", pauses)
+	}
+}
+
+func TestWriteTableAlignsChineseText(t *testing.T) {
+	var output bytes.Buffer
+	writeTable(&output, [][]string{{"名称", "协议"}, {"香港", "vless"}, {"US", "trojan"}})
+	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
+	for index, line := range lines {
+		if position := strings.Index(line, map[int]string{0: "协议", 1: "vless", 2: "trojan"}[index]); displayWidth(line[:position]) != 6 {
+			t.Fatalf("line %d is not aligned: %q", index, line)
+		}
+	}
+}
+
+func TestFindSubscriptionByNumberOrName(t *testing.T) {
+	data := state.Data{Subscriptions: []state.Subscription{
+		{ID: "random-first", Name: "工作"},
+		{ID: "random-second", Name: "Home"},
+	}}
+	for selection, want := range map[string]int{"1": 0, "2": 1, "工作": 0, "home": 1} {
+		got, err := findSubscription(data, selection)
+		if err != nil {
+			t.Fatalf("findSubscription(%q): %v", selection, err)
+		}
+		if got != want {
+			t.Fatalf("findSubscription(%q) = %d, want %d", selection, got, want)
+		}
+	}
+}
+
+func TestFindSubscriptionRejectsDuplicateName(t *testing.T) {
+	data := state.Data{Subscriptions: []state.Subscription{
+		{ID: "first", Name: "工作"},
+		{ID: "second", Name: "工作"},
+	}}
+	if _, err := findSubscription(data, "工作"); err == nil || !strings.Contains(err.Error(), "请使用序号") {
+		t.Fatalf("expected duplicate-name error, got %v", err)
+	}
+}
+
+func TestNodeSelectionStaysInSubscription(t *testing.T) {
+	data := state.Data{Nodes: []state.Node{
+		{ID: "first", SubscriptionID: "sub-a"},
+		{ID: "second", SubscriptionID: "sub-b"},
+	}}
+	if got, err := nodeSelectionInSubscription(data, "1", "sub-a"); err != nil || got != 0 {
+		t.Fatalf("expected first node, got index %d, error %v", got, err)
+	}
+	if _, err := nodeSelectionInSubscription(data, "2", "sub-a"); err == nil {
+		t.Fatal("node from another subscription should be rejected")
 	}
 }
 
@@ -237,7 +287,7 @@ func TestInteractiveNodeActionReturnsToNodeMenu(t *testing.T) {
 		output: &output,
 		pause:  func(time.Duration) {},
 	}
-	if err := app.interactiveNodes(); err != nil {
+	if err := app.interactiveNodes(""); err != nil {
 		t.Fatal(err)
 	}
 	if count := strings.Count(output.String(), "s. 选择"); count != 2 {

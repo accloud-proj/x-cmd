@@ -10,8 +10,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"text/tabwriter"
 	"time"
+	"unicode"
 
 	"github.com/accloud-proj/x-cmd/internal/completion"
 	"github.com/accloud-proj/x-cmd/internal/githuburl"
@@ -194,6 +194,7 @@ func (a *App) core(args []string) error {
 		return err
 	}
 	var binary string
+	var selected githuburl.Rewriter
 	for index, rewriter := range rewriters {
 		downloadURL, rewriteErr := rewriter.Rewrite(data.Settings.DownloadURL)
 		if rewriteErr != nil {
@@ -205,6 +206,7 @@ func (a *App) core(args []string) error {
 		fmt.Fprintf(a.output, "[信息] 正在下载 Xray %s...\n", *version)
 		binary, err = xray.Install(context.Background(), *version, downloadURL, *directory)
 		if err == nil {
+			selected = rewriter
 			break
 		}
 	}
@@ -213,6 +215,7 @@ func (a *App) core(args []string) error {
 	}
 	data.Settings.XrayVersion = *version
 	data.Settings.XrayPath = binary
+	a.persistSelectedMirror(&data, selected)
 	if err := a.store.Save(data); err != nil {
 		return err
 	}
@@ -232,15 +235,25 @@ func (a *App) xrayReleases() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var releases []xray.Release
+	var selected githuburl.Rewriter
 	for index, rewriter := range rewriters {
-		endpoint, rewriteErr := rewriter.Rewrite("https://api.github.com/repos/XTLS/Xray-core/releases?per_page=10")
-		if rewriteErr != nil {
-			return rewriteErr
-		}
 		if index > 0 {
 			fmt.Fprintln(a.output, "[提示] GitHub 直连不可用，正在切换到内置镜像...")
 		}
-		releases, err = xray.RecentReleases(ctx, endpoint, 5)
+		for _, source := range []string{
+			"https://api.github.com/repos/XTLS/Xray-core/releases?per_page=5",
+			"https://github.com/XTLS/Xray-core/releases.atom",
+		} {
+			endpoint, rewriteErr := rewriter.Rewrite(source)
+			if rewriteErr != nil {
+				return rewriteErr
+			}
+			releases, err = xray.RecentReleases(ctx, endpoint, 5)
+			if err == nil {
+				selected = rewriter
+				break
+			}
+		}
 		if err == nil {
 			break
 		}
@@ -250,6 +263,11 @@ func (a *App) xrayReleases() error {
 	}
 	if len(releases) == 0 {
 		return fmt.Errorf("未获取到可用的 Xray Release")
+	}
+	if a.persistSelectedMirror(&data, selected) {
+		if err := a.store.Save(data); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintln(a.output, "\n[信息] 最近的 Xray Release:")
 	for index, release := range releases {
@@ -366,11 +384,11 @@ func (a *App) subscriptions(args []string) error {
 		if err := a.store.Save(data); err != nil {
 			return err
 		}
-		fmt.Fprintln(a.output, "[成功] 已添加订阅:", subscription.ID)
+		fmt.Fprintln(a.output, "[成功] 已添加订阅:", subscription.Name)
 		return a.updateSubscriptions(subscription.ID)
 	case "edit":
 		if len(args) < 2 {
-			return fmt.Errorf("用法: x-cmd sub edit <ID> [--name 名称] [--url 链接]")
+			return fmt.Errorf("用法: x-cmd sub edit <序号或名称> [--name 名称] [--url 链接]")
 		}
 		flags := newFlagSet("sub edit")
 		name := flags.String("name", "", "订阅名称")
@@ -400,7 +418,7 @@ func (a *App) subscriptions(args []string) error {
 		return a.store.Save(data)
 	case "delete", "rm":
 		if len(args) != 2 {
-			return fmt.Errorf("用法: x-cmd sub delete <ID>")
+			return fmt.Errorf("用法: x-cmd sub delete <序号或名称>")
 		}
 		data, err := a.store.Load()
 		if err != nil {
@@ -427,7 +445,7 @@ func (a *App) subscriptions(args []string) error {
 		return a.updateSubscriptions(id)
 	case "nodes":
 		if len(args) != 2 {
-			return fmt.Errorf("用法: x-cmd sub nodes <ID>")
+			return fmt.Errorf("用法: x-cmd sub nodes <序号或名称>")
 		}
 		data, err := a.store.Load()
 		if err != nil {
@@ -448,18 +466,18 @@ func (a *App) listSubscriptions() error {
 	if err != nil {
 		return err
 	}
-	writer := tabwriter.NewWriter(a.output, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "ID\t名称\t节点数\t更新时间\t链接")
-	for _, subscription := range data.Subscriptions {
+	rows := [][]string{{"序号", "名称", "节点数", "更新时间", "链接"}}
+	for index, subscription := range data.Subscriptions {
 		count := 0
 		for _, node := range data.Nodes {
 			if node.SubscriptionID == subscription.ID {
 				count++
 			}
 		}
-		fmt.Fprintf(writer, "%s\t%s\t%d\t%s\t%s\n", subscription.ID, subscription.Name, count, formatTime(subscription.UpdatedAt), subscription.URL)
+		rows = append(rows, []string{strconv.Itoa(index + 1), subscription.Name, strconv.Itoa(count), formatTime(subscription.UpdatedAt), subscription.URL})
 	}
-	return writer.Flush()
+	writeTable(a.output, rows)
+	return nil
 }
 
 func (a *App) updateSubscriptions(id string) error {
@@ -529,7 +547,7 @@ func (a *App) updateSubscriptions(id string) error {
 func (a *App) node(args []string) error {
 	if len(args) == 0 || args[0] == "list" {
 		flags := newFlagSet("node list")
-		subscription := flags.String("subscription", "", "订阅 ID")
+		subscription := flags.String("subscription", "", "订阅序号或名称")
 		if len(args) > 0 {
 			if err := flags.Parse(args[1:]); err != nil {
 				return err
@@ -684,8 +702,7 @@ func (a *App) runService(action string) error {
 }
 
 func (a *App) printNodes(data state.Data, subscriptionID string) error {
-	writer := tabwriter.NewWriter(a.output, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(writer, "序号\t活动\tID\t名称\t协议\t来源")
+	rows := [][]string{{"序号", "活动", "ID", "名称", "协议", "来源"}}
 	for index, node := range data.Nodes {
 		if subscriptionID != "" && node.SubscriptionID != subscriptionID {
 			continue
@@ -695,9 +712,10 @@ func (a *App) printNodes(data state.Data, subscriptionID string) error {
 		if node.ID == data.Settings.ActiveNodeID {
 			active = "*"
 		}
-		fmt.Fprintf(writer, "%d\t%s\t%s\t%s\t%s\t%s\n", index+1, active, node.ID, node.Name, protocol, emptyAs(subscriptionName(data, node.SubscriptionID), "手工"))
+		rows = append(rows, []string{strconv.Itoa(index + 1), active, node.ID, node.Name, protocol, emptyAs(subscriptionName(data, node.SubscriptionID), "手工")})
 	}
-	return writer.Flush()
+	writeTable(a.output, rows)
+	return nil
 }
 
 func (a *App) testNodes(subscriptionID string, timeout time.Duration, removeInvalid bool) error {
@@ -892,6 +910,11 @@ func (a *App) update(args []string) error {
 	if err != nil {
 		return err
 	}
+	if a.persistSelectedMirror(&data, selected) {
+		if err := a.store.Save(data); err != nil {
+			return err
+		}
+	}
 	newer := updater.IsNewer(release.TagName, version.Version)
 	if !newer {
 		fmt.Fprintf(a.output, "[信息] 当前已是最新版本: %s\n", version.Version)
@@ -922,9 +945,18 @@ func (a *App) update(args []string) error {
 	return nil
 }
 
+func (a *App) persistSelectedMirror(data *state.Data, selected githuburl.Rewriter) bool {
+	if data.Settings.GitHubMirror != "" || selected.Mirror == "" {
+		return false
+	}
+	data.Settings.GitHubMirror = selected.Mirror
+	fmt.Fprintln(a.output, "[提示] 已保存内置 GitHub 镜像，后续 GitHub 请求将优先使用该镜像")
+	return true
+}
+
 func (a *App) interactive() error {
 	for {
-		a.printMenu("X-CMD  Xray 管理工具\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点并清理失效项\n5. 修改配置\n6. 连接管理\n7. 全局代理开关\nu. 卸载\n0. 退出")
+		a.printMenu("X-CMD  Xray 管理工具\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点\n5. 修改配置\n6. 连接管理\n7. 全局代理\nu. 卸载\n0. 退出")
 		choice := a.prompt("请选择")
 		var err error
 		returnedFromSubmenu := false
@@ -936,7 +968,7 @@ func (a *App) interactive() error {
 			err = a.interactiveSubscriptions()
 			returnedFromSubmenu = true
 		case "3":
-			err = a.interactiveNodes()
+			err = a.interactiveNodes("")
 			returnedFromSubmenu = true
 		case "4":
 			err = a.testNodes("", 10*time.Second, strings.EqualFold(a.prompt("确认自动删除失效节点? [y/N]"), "y"))
@@ -977,11 +1009,12 @@ func (a *App) interactive() error {
 }
 
 func (a *App) waitForMenu(seconds int) {
-	for remaining := seconds; remaining > 0; remaining-- {
-		fmt.Fprintf(a.output, "[提示] %d 秒后返回\n", remaining)
-		if a.pause != nil {
-			a.pause(time.Second)
-		}
+	if seconds <= 0 {
+		return
+	}
+	fmt.Fprintf(a.output, "\n[提示] %d 秒后返回\n", seconds)
+	if a.pause != nil {
+		a.pause(time.Duration(seconds) * time.Second)
 	}
 }
 
@@ -1029,7 +1062,7 @@ func (a *App) interactiveSubscriptions() error {
 		if err := a.listSubscriptions(); err != nil {
 			return err
 		}
-		a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 查看节点  0. 返回")
+		a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 节点管理  0. 返回")
 		choice := strings.ToLower(a.prompt("操作"))
 		if choice == "0" || choice == "" {
 			return nil
@@ -1039,7 +1072,7 @@ func (a *App) interactiveSubscriptions() error {
 		case "a":
 			err = a.subscriptions([]string{"add", "--name", a.prompt("名称"), "--url", a.prompt("链接")})
 		case "e":
-			id := a.prompt("订阅 ID")
+			id := a.prompt("订阅序号或名称")
 			name := a.prompt("新名称（留空则不改）")
 			address := a.prompt("新链接（留空则不改）")
 			args := []string{"edit", id}
@@ -1051,11 +1084,21 @@ func (a *App) interactiveSubscriptions() error {
 			}
 			err = a.subscriptions(args)
 		case "d":
-			err = a.subscriptions([]string{"delete", a.prompt("订阅 ID")})
+			err = a.subscriptions([]string{"delete", a.prompt("订阅序号或名称")})
 		case "u":
-			err = a.subscriptions([]string{"update", defaultString(a.prompt("订阅 ID（留空更新全部）"), "all")})
+			err = a.subscriptions([]string{"update", defaultString(a.prompt("订阅序号或名称（留空更新全部）"), "all")})
 		case "n":
-			err = a.subscriptions([]string{"nodes", a.prompt("订阅 ID")})
+			data, loadErr := a.store.Load()
+			if loadErr != nil {
+				err = loadErr
+				break
+			}
+			index, findErr := findSubscription(data, a.prompt("订阅序号或名称"))
+			if findErr != nil {
+				err = findErr
+				break
+			}
+			err = a.interactiveNodes(data.Subscriptions[index].ID)
 		default:
 			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
 			continue
@@ -1064,13 +1107,13 @@ func (a *App) interactiveSubscriptions() error {
 	}
 }
 
-func (a *App) interactiveNodes() error {
+func (a *App) interactiveNodes(subscriptionID string) error {
 	for {
 		data, err := a.store.Load()
 		if err != nil {
 			return err
 		}
-		if err := a.printNodes(data, ""); err != nil {
+		if err := a.printNodes(data, subscriptionID); err != nil {
 			return err
 		}
 		a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
@@ -1080,13 +1123,23 @@ func (a *App) interactiveNodes() error {
 		}
 		switch choice {
 		case "s":
-			err = a.node([]string{"use", a.prompt("节点序号或 ID")})
+			selection, selectErr := nodeSelectionInSubscription(data, a.prompt("节点序号或 ID"), subscriptionID)
+			if selectErr != nil {
+				err = selectErr
+				break
+			}
+			err = a.node([]string{"use", data.Nodes[selection].ID})
 		case "a":
 			err = a.node([]string{"add", "--uri", a.prompt("节点分享链接"), "--name", a.prompt("名称（可留空）")})
 		case "d":
-			err = a.node([]string{"delete", a.prompt("节点序号或 ID")})
+			selection, selectErr := nodeSelectionInSubscription(data, a.prompt("节点序号或 ID"), subscriptionID)
+			if selectErr != nil {
+				err = selectErr
+				break
+			}
+			err = a.node([]string{"delete", data.Nodes[selection].ID})
 		case "t":
-			err = a.testNodes("", 10*time.Second, false)
+			err = a.testNodes(subscriptionID, 10*time.Second, false)
 		default:
 			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
 			continue
@@ -1146,7 +1199,7 @@ func (a *App) printHelp() {
 	core show|releases|install --version VERSION [--dir DIR]
 	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT]
   sub list|add|edit|delete|update|nodes
-	node list|add|use|delete|test [--delete-invalid] [--subscription ID]
+	node list|add|use|delete|test [--delete-invalid] [--subscription 序号或名称]
   version
 
 运行 x-cmd <命令> -h 查看参数。`)
@@ -1175,6 +1228,41 @@ func formatTime(value time.Time) string {
 	}
 	return value.Format("2006-01-02 15:04")
 }
+
+func writeTable(writer io.Writer, rows [][]string) {
+	if len(rows) == 0 {
+		return
+	}
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for column, value := range row {
+			if width := displayWidth(value); width > widths[column] {
+				widths[column] = width
+			}
+		}
+	}
+	for _, row := range rows {
+		for column, value := range row {
+			fmt.Fprint(writer, value)
+			if column < len(row)-1 {
+				fmt.Fprint(writer, strings.Repeat(" ", widths[column]-displayWidth(value)+2))
+			}
+		}
+		fmt.Fprintln(writer)
+	}
+}
+
+func displayWidth(value string) int {
+	width := 0
+	for _, char := range value {
+		if unicode.Is(unicode.Han, char) || unicode.Is(unicode.Hangul, char) || unicode.Is(unicode.Hiragana, char) || unicode.Is(unicode.Katakana, char) || (char >= 0xFF01 && char <= 0xFF60) {
+			width += 2
+		} else {
+			width++
+		}
+	}
+	return width
+}
 func filterNodes(values []state.Node, keep func(state.Node) bool) []state.Node {
 	result := values[:0]
 	for _, value := range values {
@@ -1198,6 +1286,24 @@ func normalizeActiveNode(data *state.Data) {
 }
 
 func findSubscription(data state.Data, prefix string) (int, error) {
+	if number, err := strconv.Atoi(prefix); err == nil {
+		if number < 1 || number > len(data.Subscriptions) {
+			return -1, fmt.Errorf("订阅序号 %d 超出范围 1-%d", number, len(data.Subscriptions))
+		}
+		return number - 1, nil
+	}
+	nameMatches := []int{}
+	for index, subscription := range data.Subscriptions {
+		if strings.EqualFold(subscription.Name, prefix) {
+			nameMatches = append(nameMatches, index)
+		}
+	}
+	if len(nameMatches) == 1 {
+		return nameMatches[0], nil
+	}
+	if len(nameMatches) > 1 {
+		return -1, fmt.Errorf("订阅名称 %q 匹配到 %d 项，请使用序号", prefix, len(nameMatches))
+	}
 	matches := []int{}
 	for index, subscription := range data.Subscriptions {
 		if strings.HasPrefix(subscription.ID, prefix) {
@@ -1205,7 +1311,7 @@ func findSubscription(data state.Data, prefix string) (int, error) {
 		}
 	}
 	if len(matches) != 1 {
-		return -1, fmt.Errorf("订阅 ID %q 匹配到 %d 项", prefix, len(matches))
+		return -1, fmt.Errorf("订阅 %q 匹配到 %d 项，请使用序号或名称", prefix, len(matches))
 	}
 	return matches[0], nil
 }
@@ -1231,6 +1337,17 @@ func findNodeSelection(data state.Data, selection string) (int, error) {
 		return number - 1, nil
 	}
 	return findNode(data, selection)
+}
+
+func nodeSelectionInSubscription(data state.Data, selection, subscriptionID string) (int, error) {
+	index, err := findNodeSelection(data, selection)
+	if err != nil {
+		return -1, err
+	}
+	if subscriptionID != "" && data.Nodes[index].SubscriptionID != subscriptionID {
+		return -1, fmt.Errorf("节点 %q 不属于当前订阅", selection)
+	}
+	return index, nil
 }
 
 func subscriptionName(data state.Data, id string) string {
