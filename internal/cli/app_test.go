@@ -295,6 +295,30 @@ func TestInteractiveNodeActionReturnsToNodeMenu(t *testing.T) {
 	}
 }
 
+func TestInteractiveGlobalProxyOpensSubmenu(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	var output bytes.Buffer
+	app := &App{
+		store:  store,
+		input:  bufio.NewReader(strings.NewReader("7\n0\n0\n")),
+		output: &output,
+		pause:  func(time.Duration) {},
+	}
+	if err := app.interactive(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "1. 开启全局代理  2. 查看状态  3. 关闭全局代理  0. 返回") {
+		t.Fatalf("global proxy submenu missing: %q", output.String())
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Settings.GlobalProxy {
+		t.Fatal("opening the submenu should not enable the global proxy")
+	}
+}
+
 func TestGitHubMirrorLifecycle(t *testing.T) {
 	var output bytes.Buffer
 	app := &App{

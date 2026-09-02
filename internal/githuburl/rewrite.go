@@ -18,6 +18,9 @@ func Candidates(mirror string) ([]Rewriter, error) {
 		return nil, err
 	}
 	if configured.Mirror != "" {
+		if configured.Mirror == DefaultMirror {
+			return []Rewriter{configured, {}}, nil
+		}
 		return []Rewriter{configured}, nil
 	}
 	fallback, err := New(DefaultMirror)

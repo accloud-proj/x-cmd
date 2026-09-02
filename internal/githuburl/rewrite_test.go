@@ -55,4 +55,12 @@ func TestCandidatesUseBuiltInMirrorOnlyAsFallback(t *testing.T) {
 	if len(candidates) != 1 || candidates[0].Mirror != "https://mirror.example" {
 		t.Fatalf("unexpected configured candidates: %#v", candidates)
 	}
+
+	candidates, err = Candidates(DefaultMirror)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 || candidates[0].Mirror != DefaultMirror || candidates[1].Mirror != "" {
+		t.Fatalf("built-in mirror should fall back to direct GitHub: %#v", candidates)
+	}
 }

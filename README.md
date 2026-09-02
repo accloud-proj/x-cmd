@@ -30,10 +30,9 @@ English | [简体中文](README.zh-CN.md)
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh)
 ```
 
-Install a specific version or use a GitHub mirror:
+The installer downloads the latest Release by default. To use a GitHub mirror:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.8.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +52,6 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.8.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 

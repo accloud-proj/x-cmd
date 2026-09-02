@@ -979,16 +979,8 @@ func (a *App) interactive() error {
 			err = a.interactiveSystem()
 			returnedFromSubmenu = true
 		case "7":
-			action := "enable"
-			data, loadErr := a.store.Load()
-			if loadErr != nil {
-				err = loadErr
-			} else {
-				if data.Settings.GlobalProxy {
-					action = "disable"
-				}
-				err = a.proxy([]string{action})
-			}
+			err = a.interactiveProxy()
+			returnedFromSubmenu = true
 		case "u", "U":
 			if strings.EqualFold(a.prompt("卸载会删除程序和全部配置，确认? [y/N]"), "y") {
 				return a.uninstallApp([]string{"--yes"})
@@ -1031,6 +1023,22 @@ func (a *App) interactiveSystem() error {
 			continue
 		}
 		a.finishSubmenuAction(a.system([]string{action}))
+	}
+}
+
+func (a *App) interactiveProxy() error {
+	for {
+		a.printMenu("1. 开启全局代理  2. 查看状态  3. 关闭全局代理  0. 返回")
+		choice := a.prompt("操作")
+		if choice == "0" || choice == "" {
+			return nil
+		}
+		action := map[string]string{"1": "enable", "2": "status", "3": "disable"}[choice]
+		if action == "" {
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(a.proxy([]string{action}))
 	}
 }
 

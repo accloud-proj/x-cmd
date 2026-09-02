@@ -30,10 +30,9 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh)
 ```
 
-指定版本或 GitHub 镜像：
+安装脚本默认下载最新 Release。使用 GitHub 镜像：
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.8.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +52,6 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.8.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
