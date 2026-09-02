@@ -30,6 +30,7 @@ type App struct {
 	output    io.Writer
 	uninstall func(string, string) error
 	pause     func(time.Duration)
+	serviceFn func(string) error
 }
 
 func New() *App {
@@ -581,21 +582,45 @@ func (a *App) node(args []string) error {
 		return nil
 	case "delete", "rm":
 		if len(args) != 2 {
-			return fmt.Errorf("用法: x-cmd node delete <ID>")
+			return fmt.Errorf("用法: x-cmd node delete <序号或 ID>")
 		}
 		data, err := a.store.Load()
 		if err != nil {
 			return err
 		}
-		index, err := findNode(data, args[1])
+		index, err := findNodeSelection(data, args[1])
 		if err != nil {
 			return err
 		}
-		if data.Nodes[index].ID == data.Settings.ActiveNodeID {
-			return fmt.Errorf("不能删除活动节点，请先使用 node use <ID> 切换")
+		deletingActive := data.Nodes[index].ID == data.Settings.ActiveNodeID
+		if deletingActive && data.Runtime.PID > 0 {
+			if err := a.runService("stop"); err != nil {
+				return err
+			}
+			data, err = a.store.Load()
+			if err != nil {
+				return err
+			}
+			index, err = findNodeSelection(data, args[1])
+			if err != nil {
+				return err
+			}
 		}
 		data.Nodes = append(data.Nodes[:index], data.Nodes[index+1:]...)
-		return a.store.Save(data)
+		if deletingActive {
+			data.Settings.ActiveNodeID = ""
+			if len(data.Nodes) > 0 {
+				if index >= len(data.Nodes) {
+					index = len(data.Nodes) - 1
+				}
+				data.Settings.ActiveNodeID = data.Nodes[index].ID
+			}
+		}
+		if err := a.store.Save(data); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.output, "[成功] 节点已删除")
+		return nil
 	case "use", "select":
 		if len(args) != 2 {
 			return fmt.Errorf("用法: x-cmd node use <序号或 ID>")
@@ -608,9 +633,32 @@ func (a *App) node(args []string) error {
 		if err != nil {
 			return err
 		}
+		if data.Settings.ActiveNodeID == data.Nodes[index].ID {
+			fmt.Fprintln(a.output, "[信息] 该节点已经是当前活动节点")
+			return nil
+		}
+		wasRunning := data.Runtime.PID > 0
+		if wasRunning {
+			if err := a.runService("stop"); err != nil {
+				return err
+			}
+			data, err = a.store.Load()
+			if err != nil {
+				return err
+			}
+			index, err = findNodeSelection(data, args[1])
+			if err != nil {
+				return err
+			}
+		}
 		data.Settings.ActiveNodeID = data.Nodes[index].ID
 		if err := a.store.Save(data); err != nil {
 			return err
+		}
+		if wasRunning {
+			if err := a.runService("start"); err != nil {
+				return fmt.Errorf("节点已切换，但重新启动连接失败: %w", err)
+			}
 		}
 		fmt.Fprintln(a.output, "[成功] 当前活动节点:", data.Nodes[index].Name)
 		return nil
@@ -626,6 +674,13 @@ func (a *App) node(args []string) error {
 	default:
 		return fmt.Errorf("未知节点命令 %q", args[0])
 	}
+}
+
+func (a *App) runService(action string) error {
+	if a.serviceFn != nil {
+		return a.serviceFn(action)
+	}
+	return a.service(action)
 }
 
 func (a *App) printNodes(data state.Data, subscriptionID string) error {
@@ -708,7 +763,7 @@ func (a *App) service(action string) error {
 		}
 		index, err := findNode(data, data.Settings.ActiveNodeID)
 		if err != nil {
-			return fmt.Errorf("尚未选择活动节点，请先运行 node use <ID>")
+			return fmt.Errorf("尚未选择活动节点，请先运行 node use <序号或 ID>")
 		}
 		parsed, err := nodes.Parse(data.Nodes[index].URI)
 		if err != nil {
@@ -872,19 +927,25 @@ func (a *App) interactive() error {
 		a.printMenu("X-CMD  Xray 管理工具\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点并清理失效项\n5. 修改配置\n6. 连接管理\n7. 全局代理开关\nu. 卸载\n0. 退出")
 		choice := a.prompt("请选择")
 		var err error
+		returnedFromSubmenu := false
 		switch choice {
 		case "1":
 			err = a.interactiveCore()
+			returnedFromSubmenu = true
 		case "2":
 			err = a.interactiveSubscriptions()
+			returnedFromSubmenu = true
 		case "3":
 			err = a.interactiveNodes()
+			returnedFromSubmenu = true
 		case "4":
 			err = a.testNodes("", 10*time.Second, strings.EqualFold(a.prompt("确认自动删除失效节点? [y/N]"), "y"))
 		case "5":
 			err = a.interactiveConfig()
+			returnedFromSubmenu = true
 		case "6":
 			err = a.interactiveSystem()
+			returnedFromSubmenu = true
 		case "7":
 			action := "enable"
 			data, loadErr := a.store.Load()
@@ -908,6 +969,9 @@ func (a *App) interactive() error {
 		if err != nil {
 			fmt.Fprintln(a.output, "[错误]", err)
 		}
+		if returnedFromSubmenu && err == nil {
+			continue
+		}
 		a.waitForMenu(2)
 	}
 }
@@ -922,92 +986,139 @@ func (a *App) waitForMenu(seconds int) {
 }
 
 func (a *App) interactiveSystem() error {
-	a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  0. 返回")
-	action := map[string]string{"1": "start", "2": "status", "3": "stop"}[a.prompt("操作")]
-	if action == "" {
-		return nil
+	for {
+		a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  0. 返回")
+		choice := a.prompt("操作")
+		if choice == "0" || choice == "" {
+			return nil
+		}
+		action := map[string]string{"1": "start", "2": "status", "3": "stop"}[choice]
+		if action == "" {
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(a.system([]string{action}))
 	}
-	return a.system([]string{action})
 }
 
 func (a *App) interactiveCore() error {
-	a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  0. 返回")
-	switch a.prompt("操作") {
-	case "1":
-		return a.core([]string{"show"})
-	case "2":
-		return a.core([]string{"releases"})
-	case "3":
-		version := a.prompt("版本（例如 v26.3.27）")
-		return a.core([]string{"install", "--version", version})
-	default:
-		return nil
+	for {
+		a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  0. 返回")
+		choice := a.prompt("操作")
+		if choice == "0" || choice == "" {
+			return nil
+		}
+		var err error
+		switch choice {
+		case "1":
+			err = a.core([]string{"show"})
+		case "2":
+			err = a.core([]string{"releases"})
+		case "3":
+			err = a.core([]string{"install", "--version", a.prompt("版本（例如 v26.3.27）")})
+		default:
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(err)
 	}
 }
 
 func (a *App) interactiveSubscriptions() error {
-	if err := a.listSubscriptions(); err != nil {
-		return err
-	}
-	a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 查看节点  0. 返回")
-	switch strings.ToLower(a.prompt("操作")) {
-	case "a":
-		return a.subscriptions([]string{"add", "--name", a.prompt("名称"), "--url", a.prompt("链接")})
-	case "e":
-		id := a.prompt("订阅 ID")
-		name := a.prompt("新名称（留空则不改）")
-		address := a.prompt("新链接（留空则不改）")
-		args := []string{"edit", id}
-		if name != "" {
-			args = append(args, "--name", name)
+	for {
+		if err := a.listSubscriptions(); err != nil {
+			return err
 		}
-		if address != "" {
-			args = append(args, "--url", address)
+		a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 查看节点  0. 返回")
+		choice := strings.ToLower(a.prompt("操作"))
+		if choice == "0" || choice == "" {
+			return nil
 		}
-		return a.subscriptions(args)
-	case "d":
-		return a.subscriptions([]string{"delete", a.prompt("订阅 ID")})
-	case "u":
-		return a.subscriptions([]string{"update", defaultString(a.prompt("订阅 ID（留空更新全部）"), "all")})
-	case "n":
-		return a.subscriptions([]string{"nodes", a.prompt("订阅 ID")})
+		var err error
+		switch choice {
+		case "a":
+			err = a.subscriptions([]string{"add", "--name", a.prompt("名称"), "--url", a.prompt("链接")})
+		case "e":
+			id := a.prompt("订阅 ID")
+			name := a.prompt("新名称（留空则不改）")
+			address := a.prompt("新链接（留空则不改）")
+			args := []string{"edit", id}
+			if name != "" {
+				args = append(args, "--name", name)
+			}
+			if address != "" {
+				args = append(args, "--url", address)
+			}
+			err = a.subscriptions(args)
+		case "d":
+			err = a.subscriptions([]string{"delete", a.prompt("订阅 ID")})
+		case "u":
+			err = a.subscriptions([]string{"update", defaultString(a.prompt("订阅 ID（留空更新全部）"), "all")})
+		case "n":
+			err = a.subscriptions([]string{"nodes", a.prompt("订阅 ID")})
+		default:
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(err)
 	}
-	return nil
 }
 
 func (a *App) interactiveNodes() error {
-	data, err := a.store.Load()
-	if err != nil {
-		return err
+	for {
+		data, err := a.store.Load()
+		if err != nil {
+			return err
+		}
+		if err := a.printNodes(data, ""); err != nil {
+			return err
+		}
+		a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
+		choice := strings.ToLower(a.prompt("操作"))
+		if choice == "0" || choice == "" {
+			return nil
+		}
+		switch choice {
+		case "s":
+			err = a.node([]string{"use", a.prompt("节点序号或 ID")})
+		case "a":
+			err = a.node([]string{"add", "--uri", a.prompt("节点分享链接"), "--name", a.prompt("名称（可留空）")})
+		case "d":
+			err = a.node([]string{"delete", a.prompt("节点序号或 ID")})
+		case "t":
+			err = a.testNodes("", 10*time.Second, false)
+		default:
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(err)
 	}
-	if err := a.printNodes(data, ""); err != nil {
-		return err
-	}
-	a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
-	switch strings.ToLower(a.prompt("操作")) {
-	case "s":
-		return a.node([]string{"use", a.prompt("节点序号或 ID")})
-	case "a":
-		return a.node([]string{"add", "--uri", a.prompt("节点分享链接"), "--name", a.prompt("名称（可留空）")})
-	case "d":
-		return a.node([]string{"delete", a.prompt("节点 ID")})
-	case "t":
-		return a.testNodes("", 10*time.Second, false)
-	}
-	return nil
 }
 
 func (a *App) interactiveConfig() error {
-	if err := a.config([]string{"show"}); err != nil {
-		return err
+	for {
+		if err := a.config([]string{"show"}); err != nil {
+			return err
+		}
+		a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  0. 返回")
+		choice := a.prompt("配置项")
+		if choice == "0" || choice == "" {
+			return nil
+		}
+		key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[choice]
+		if key == "" {
+			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			continue
+		}
+		a.finishSubmenuAction(a.config([]string{"set", key, a.prompt("新值")}))
 	}
-	a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  0. 返回")
-	choice := a.prompt("配置项")
-	key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[choice]
-	if key == "" {
-		return nil
+}
+
+func (a *App) finishSubmenuAction(err error) {
+	if err != nil {
+		fmt.Fprintln(a.output, "[错误]", err)
 	}
-	return a.config([]string{"set", key, a.prompt("新值")})
+	a.waitForMenu(2)
 }
 
 func (a *App) prompt(label string) string {

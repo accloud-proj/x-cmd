@@ -137,6 +137,114 @@ func TestNodeListAndUseAcceptNumberOrID(t *testing.T) {
 	}
 }
 
+func TestDeleteActiveNodeSelectsNextAndStopsConnection(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Nodes = []state.Node{
+		{ID: "one", Name: "one"},
+		{ID: "two", Name: "two"},
+		{ID: "three", Name: "three"},
+	}
+	data.Settings.ActiveNodeID = "two"
+	data.Runtime = state.Runtime{PID: 42, NodeID: "two"}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	app := &App{store: store, output: io.Discard}
+	app.serviceFn = func(action string) error {
+		actions = append(actions, action)
+		current, err := store.Load()
+		if err != nil {
+			return err
+		}
+		current.Runtime = state.Runtime{}
+		return store.Save(current)
+	}
+	if err := app.Run([]string{"node", "delete", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = store.Load()
+	if len(data.Nodes) != 2 || data.Settings.ActiveNodeID != "three" {
+		t.Fatalf("unexpected nodes after delete: %#v, active %q", data.Nodes, data.Settings.ActiveNodeID)
+	}
+	if strings.Join(actions, ",") != "stop" {
+		t.Fatalf("service actions = %v", actions)
+	}
+}
+
+func TestDeleteOnlyActiveNodeClearsSelection(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Nodes = []state.Node{{ID: "one", Name: "one"}}
+	data.Settings.ActiveNodeID = "one"
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{store: store, output: io.Discard}
+	if err := app.Run([]string{"node", "delete", "one"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = store.Load()
+	if len(data.Nodes) != 0 || data.Settings.ActiveNodeID != "" {
+		t.Fatalf("unexpected state: %#v", data)
+	}
+}
+
+func TestSwitchRunningNodeRestartsConnection(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Nodes = []state.Node{{ID: "one", Name: "one"}, {ID: "two", Name: "two"}}
+	data.Settings.ActiveNodeID = "one"
+	data.Runtime = state.Runtime{PID: 42, NodeID: "one"}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	var actions []string
+	app := &App{store: store, output: io.Discard}
+	app.serviceFn = func(action string) error {
+		actions = append(actions, action)
+		current, err := store.Load()
+		if err != nil {
+			return err
+		}
+		if action == "stop" {
+			current.Runtime = state.Runtime{}
+		}
+		return store.Save(current)
+	}
+	if err := app.Run([]string{"node", "use", "2"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = store.Load()
+	if data.Settings.ActiveNodeID != "two" || strings.Join(actions, ",") != "stop,start" {
+		t.Fatalf("active = %q, actions = %v", data.Settings.ActiveNodeID, actions)
+	}
+}
+
+func TestInteractiveNodeActionReturnsToNodeMenu(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Nodes = []state.Node{{ID: "one", Name: "one", URI: "trojan://secret@example.com:443?security=tls#one"}}
+	data.Settings.ActiveNodeID = "one"
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	app := &App{
+		store:  store,
+		input:  bufio.NewReader(strings.NewReader("s\n1\n0\n")),
+		output: &output,
+		pause:  func(time.Duration) {},
+	}
+	if err := app.interactiveNodes(); err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(output.String(), "s. 选择"); count != 2 {
+		t.Fatalf("node menu shown %d times, want 2: %q", count, output.String())
+	}
+}
+
 func TestGitHubMirrorLifecycle(t *testing.T) {
 	var output bytes.Buffer
 	app := &App{

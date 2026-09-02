@@ -14,6 +14,7 @@ func TestCandidates(t *testing.T) {
 	}{
 		{[]string{"sys"}, "system"},
 		{[]string{"system", "st"}, "start\nstatus\nstop"},
+		{[]string{"node", "--current="}, "add\ndelete\nlist\ntest\nuse"},
 		{[]string{"uninstall", "-"}, "--yes"},
 		{[]string{"completion", "install", "p"}, "powershell"},
 	}

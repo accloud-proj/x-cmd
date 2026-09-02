@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 指定版本或 GitHub 镜像：
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.6.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.7.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.6.0
+.\install.ps1 -Version v0.7.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -110,11 +110,11 @@ x-cmd sub delete <ID>
 x-cmd node add --uri "vless://..."
 x-cmd node list
 x-cmd node list --subscription <订阅ID>
-x-cmd node use <节点ID>
-x-cmd node delete <节点ID>
+x-cmd node use <序号或节点ID>
+x-cmd node delete <序号或节点ID>
 ```
 
-可以使用能够唯一匹配的 ID 前缀。更新订阅只替换该订阅所属节点，并保留独立导入节点。第一个可用节点会被自动选中。
+选择和删除节点时可使用列表序号或能够唯一匹配的 ID 前缀。更新订阅只替换该订阅所属节点，并保留独立导入节点。删除活动节点会停止正在运行的连接并自动选择下一个可用节点；连接运行时切换节点会使用新节点自动重启连接。
 
 ## 连接测试
 

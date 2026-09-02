@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Install a specific version or use a GitHub mirror:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.6.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.7.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.6.0
+.\install.ps1 -Version v0.7.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -110,11 +110,11 @@ x-cmd sub delete <ID>
 x-cmd node add --uri "vless://..."
 x-cmd node list
 x-cmd node list --subscription <SUBSCRIPTION_ID>
-x-cmd node use <NODE_ID>
-x-cmd node delete <NODE_ID>
+x-cmd node use <NUMBER_OR_NODE_ID>
+x-cmd node delete <NUMBER_OR_NODE_ID>
 ```
 
-An unambiguous ID prefix may be used. Subscription updates replace only nodes owned by that subscription and preserve standalone nodes. The first available node is selected automatically.
+Node selection and deletion accept the displayed number or an unambiguous ID prefix. Subscription updates replace only nodes owned by that subscription and preserve standalone nodes. Deleting the active node stops a running connection and selects the next available node. Switching nodes while connected restarts the connection with the new node.
 
 ## Connection Testing
 

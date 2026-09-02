@@ -23,8 +23,14 @@ func Candidates(args []string) []string {
 	prefix := ""
 	context := args
 	if len(args) > 0 {
-		prefix = args[len(args)-1]
-		context = args[:len(args)-1]
+		last := args[len(args)-1]
+		if strings.HasPrefix(last, "--current=") {
+			prefix = strings.TrimPrefix(last, "--current=")
+			context = args[:len(args)-1]
+		} else {
+			prefix = last
+			context = args[:len(args)-1]
+		}
 	}
 	options := optionsFor(context)
 	result := make([]string, 0, len(options))
@@ -279,9 +285,9 @@ func scriptFor(shell string) string {
 	case "bash":
 		return `_x_cmd_completion() {
   local current="${COMP_WORDS[COMP_CWORD]}"
-  local words=("${COMP_WORDS[@]:1:$COMP_CWORD}")
+	local context_count=$((COMP_CWORD - 1))
   COMPREPLY=()
-  while IFS= read -r candidate; do COMPREPLY+=("$candidate"); done < <(x-cmd completion candidates "${words[@]}")
+	while IFS= read -r candidate; do COMPREPLY+=("$candidate"); done < <(x-cmd completion candidates "${COMP_WORDS[@]:1:$context_count}" "--current=$current")
 }
 complete -F _x_cmd_completion x-cmd
 `
@@ -289,19 +295,25 @@ complete -F _x_cmd_completion x-cmd
 		return `#compdef x-cmd
 _x_cmd_completion() {
   local -a candidates
-  candidates=("${(@f)$(x-cmd completion candidates "${words[@]:1}")}")
+	local -a context
+	local current_word="${words[CURRENT]}"
+	context=("${words[@]:2:$((CURRENT - 2))}")
+	candidates=("${(@f)$(x-cmd completion candidates "${context[@]}" "--current=$current_word")}")
   _describe 'x-cmd' candidates
 }
 compdef _x_cmd_completion x-cmd
 `
 	case "fish":
-		return `complete -c x-cmd -f -a '(x-cmd completion candidates (commandline -opc)[2..-1] (commandline -ct))'
+		return `complete -c x-cmd -f -a '(x-cmd completion candidates (commandline -opc)[2..-1] (string join "" -- "--current=" (commandline -ct)))'
 `
 	case "powershell":
 		return `Register-ArgumentCompleter -Native -CommandName x-cmd -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
     $arguments = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.Extent.Text })
-    x-cmd completion candidates @arguments | ForEach-Object {
+	if ($wordToComplete -and $arguments.Count -gt 0 -and $arguments[-1] -eq $wordToComplete) {
+		$arguments = @($arguments | Select-Object -First ($arguments.Count - 1))
+	}
+	x-cmd completion candidates @arguments "--current=$wordToComplete" | ForEach-Object {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }
 }
