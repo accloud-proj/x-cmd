@@ -3,6 +3,8 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -164,12 +166,16 @@ func TestGitHubMirrorLifecycle(t *testing.T) {
 }
 
 func TestUninstallRequiresConfirmationAndRemovesData(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
 	var output bytes.Buffer
 	var configPath string
 	var runtimeDir string
 	app := &App{
 		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
-		input:  bufio.NewReader(strings.NewReader("")),
+		input:  bufio.NewReader(strings.NewReader("\n")),
 		output: &output,
 		uninstall: func(config, runtime string) error {
 			configPath = config
@@ -177,8 +183,14 @@ func TestUninstallRequiresConfirmationAndRemovesData(t *testing.T) {
 			return nil
 		},
 	}
-	if err := app.Run([]string{"uninstall"}); err == nil {
-		t.Fatal("expected confirmation error")
+	if err := app.Run([]string{"completion", "install", "bash"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.Run([]string{"uninstall"}); err != nil {
+		t.Fatal(err)
+	}
+	if configPath != "" || !strings.Contains(output.String(), "已取消卸载") {
+		t.Fatalf("default confirmation should cancel: %q", output.String())
 	}
 	if err := app.Run([]string{"uninstall", "--yes"}); err != nil {
 		t.Fatal(err)
@@ -188,5 +200,59 @@ func TestUninstallRequiresConfirmationAndRemovesData(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "卸载完成") {
 		t.Fatalf("unexpected output: %s", output.String())
+	}
+	profile, err := os.ReadFile(filepath.Join(home, ".bashrc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(profile), "x-cmd completion") {
+		t.Fatalf("completion was not removed: %q", profile)
+	}
+}
+
+func TestUninstallAcceptsInteractiveConfirmation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
+	removed := false
+	app := &App{
+		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
+		input:  bufio.NewReader(strings.NewReader("yes\n")),
+		output: io.Discard,
+		uninstall: func(string, string) error {
+			removed = true
+			return nil
+		},
+	}
+	if err := app.Run([]string{"uninstall"}); err != nil {
+		t.Fatal(err)
+	}
+	if !removed {
+		t.Fatal("interactive confirmation did not uninstall")
+	}
+}
+
+func TestCompletionCommands(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
+	var output bytes.Buffer
+	app := &App{output: &output}
+	if err := app.Run([]string{"completion", "install", "bash"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "命令补全安装完成") {
+		t.Fatalf("unexpected output: %q", output.String())
+	}
+	if err := app.Run([]string{"completion", "candidates", "system", "st"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "status") {
+		t.Fatalf("completion candidates missing: %q", output.String())
+	}
+	if err := app.Run([]string{"completion", "uninstall", "bash"}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 指定版本或 GitHub 镜像：
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.5.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.6.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.5.0
+.\install.ps1 -Version v0.6.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -76,6 +76,15 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 | 任意 Xray 出站 | `xray://` Base64URL JSON             | 由 JSON 定义            | 原生出站对象，无损传递给 xray                      |
 
 支持 Base64 编码或纯文本的 v2rayN 订阅，节点协议以表格所列类型为准。
+
+## 命令行自动补全
+
+```sh
+x-cmd completion install
+x-cmd completion uninstall
+```
+
+默认自动识别当前 Shell，也可以明确指定 Bash、Zsh、Fish 或 PowerShell，例如 `x-cmd completion install powershell`。安装后重新打开终端即可生效。
 
 ## 内核管理
 
@@ -152,17 +161,14 @@ x-cmd github-mirror delete
 
 `set` 会切换到指定镜像，`delete` 会恢复自动模式（优先直连 GitHub，失败后使用内置镜像）。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
 
-## 自动构建与发布
-
-[发布工作流](.github/workflows/release.yml)构建 Windows amd64/arm64/386、Linux amd64/arm64/armv7 和 macOS amd64/arm64。推送例如 `v0.5.0` 的标签会创建 Release，并上传各平台压缩包及 `checksums.txt`。
-
 ## 卸载
 
 ```sh
+x-cmd uninstall
 x-cmd uninstall --yes
 ```
 
-该命令会关闭系统代理、停止 xray，并删除 `x-cmd` 自身、更新备份、配置文件和运行数据。配置中的订阅与节点也会一并永久删除。无参数运行交互菜单时，也可以选择 `u. 卸载` 并确认。
+不带 `--yes` 时会询问是否确认，默认不删除。卸载时会关闭系统代理、停止 xray、自动卸载命令行补全，并删除 `x-cmd` 自身、更新备份、配置文件和运行数据。配置中的订阅与节点也会一并永久删除。无参数运行交互菜单时，也可以选择 `u. 卸载` 并确认。
 
 ## 许可证
 

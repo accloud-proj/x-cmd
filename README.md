@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Install a specific version or use a GitHub mirror:
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.5.0
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --version v0.6.0
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
 ```
 
@@ -53,7 +53,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.5.0
+.\install.ps1 -Version v0.6.0
 .\install.ps1 -GitHubMirror https://your-mirror.example
 ```
 
@@ -76,6 +76,15 @@ If GitHub is unreachable, open [scripts/install.ps1](scripts/install.ps1) in any
 | Any Xray outbound | `xray://` Base64URL JSON              | Defined by JSON         | Native outbound object, passed to xray without loss    |
 
 Supports Base64-encoded or plain-text v2rayN subscriptions. Supported node protocols are listed in the table above.
+
+## Shell Completion
+
+```sh
+x-cmd completion install
+x-cmd completion uninstall
+```
+
+The current shell is detected automatically. Bash, Zsh, Fish, and PowerShell can also be selected explicitly, for example `x-cmd completion install powershell`. Reopen the terminal after installation.
 
 ## Core Management
 
@@ -152,17 +161,14 @@ x-cmd github-mirror delete
 
 `set` selects a custom mirror, while `delete` restores automatic mode (GitHub first, then the built-in mirror on failure). `x-cmd config show` and `x-cmd config set --github-mirror URL` remain available.
 
-## Release Builds
-
-[The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.5.0` creates a Release with archives and `checksums.txt`.
-
 ## Uninstall
 
 ```sh
+x-cmd uninstall
 x-cmd uninstall --yes
 ```
 
-This command disables the system proxy, stops xray, and removes `x-cmd` itself, update backups, the configuration file, and runtime data. Stored subscriptions and nodes are permanently deleted as well. When using the interactive menu, select `u. Uninstall` and confirm.
+Without `--yes`, the command asks for confirmation and defaults to cancellation. Uninstalling disables the system proxy, stops xray, removes installed shell completion, and deletes `x-cmd` itself, update backups, the configuration file, and runtime data. Stored subscriptions and nodes are permanently deleted as well. When using the interactive menu, select `u. Uninstall` and confirm.
 
 ## License
 

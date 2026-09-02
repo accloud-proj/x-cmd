@@ -13,6 +13,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/accloud-proj/x-cmd/internal/completion"
 	"github.com/accloud-proj/x-cmd/internal/githuburl"
 	"github.com/accloud-proj/x-cmd/internal/nodes"
 	"github.com/accloud-proj/x-cmd/internal/state"
@@ -55,6 +56,8 @@ func (a *App) Run(args []string) error {
 		return a.update(args[1:])
 	case "uninstall":
 		return a.uninstallApp(args[1:])
+	case "completion":
+		return a.completion(args[1:])
 	case "core":
 		return a.core(args[1:])
 	case "config":
@@ -88,11 +91,21 @@ func (a *App) uninstallApp(args []string) error {
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if !*confirmed || flags.NArg() != 0 {
-		return fmt.Errorf("卸载会删除程序和全部配置；确认请运行 x-cmd uninstall --yes")
+	if flags.NArg() != 0 {
+		return fmt.Errorf("用法: x-cmd uninstall [--yes]")
+	}
+	if !*confirmed {
+		answer := a.prompt("卸载会删除程序和全部配置，确认? [y/N]")
+		if !strings.EqualFold(answer, "y") && !strings.EqualFold(answer, "yes") {
+			fmt.Fprintln(a.output, "[提示] 已取消卸载")
+			return nil
+		}
 	}
 	if err := a.service("stop"); err != nil {
 		return err
+	}
+	if err := completion.UninstallAll(); err != nil {
+		return fmt.Errorf("卸载命令补全失败: %w", err)
 	}
 	remove := a.uninstall
 	if remove == nil {
@@ -103,6 +116,43 @@ func (a *App) uninstallApp(args []string) error {
 	}
 	fmt.Fprintln(a.output, "[成功] 卸载完成")
 	return nil
+}
+
+func (a *App) completion(args []string) error {
+	if len(args) > 0 && args[0] == "candidates" {
+		for _, candidate := range completion.Candidates(args[1:]) {
+			fmt.Fprintln(a.output, candidate)
+		}
+		return nil
+	}
+	if len(args) < 1 || len(args) > 2 {
+		return fmt.Errorf("用法: x-cmd completion install|uninstall [bash|zsh|fish|powershell]")
+	}
+	shell := ""
+	if len(args) == 2 {
+		shell = args[1]
+	}
+	switch args[0] {
+	case "install":
+		paths, err := completion.Install(shell)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(a.output, "[成功] 命令补全安装完成")
+		for _, path := range paths {
+			fmt.Fprintln(a.output, "-", path)
+		}
+		fmt.Fprintln(a.output, "[提示] 请重新打开终端使补全生效")
+		return nil
+	case "uninstall":
+		if err := completion.Uninstall(shell); err != nil {
+			return err
+		}
+		fmt.Fprintln(a.output, "[成功] 命令补全已卸载")
+		return nil
+	default:
+		return fmt.Errorf("用法: x-cmd completion install|uninstall [bash|zsh|fish|powershell]")
+	}
 }
 
 func (a *App) core(args []string) error {
@@ -979,7 +1029,8 @@ func (a *App) printHelp() {
 	system start|status|stop
 	proxy enable|disable|status
 	update check|install
-	uninstall --yes
+	uninstall [--yes]
+	completion install|uninstall [bash|zsh|fish|powershell]
 	github-mirror show|set <URL>|delete
 	core show|releases|install --version VERSION [--dir DIR]
 	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT]

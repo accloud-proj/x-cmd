@@ -12,7 +12,7 @@ usage() {
 Install x-cmd from GitHub Releases.
 
 Usage: install.sh [options]
-  --version VERSION       Release version, for example v0.5.0 (default: latest)
+  --version VERSION       Release version (default: latest)
   --github-mirror URL     GitHub mirror prefix, for example https://github.uzfdafw.cc
   -h, --help              Show this help
 EOF
