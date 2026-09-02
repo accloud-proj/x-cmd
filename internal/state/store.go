@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/accloud-proj/x-cmd/internal/appdir"
 )
 
 const defaultDownloadURL = "https://github.com/XTLS/Xray-core/releases/download"
@@ -57,11 +59,11 @@ type Store struct {
 }
 
 func DefaultPath() (string, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := appdir.Default()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "x-cmd", "config.json"), nil
+	return filepath.Join(dir, "config.json"), nil
 }
 
 func New(path string) *Store {

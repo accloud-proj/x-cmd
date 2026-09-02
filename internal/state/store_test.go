@@ -2,8 +2,21 @@ package state
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+func isolateUserConfigDir(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	t.Setenv("HOME", directory)
+	if runtime.GOOS == "windows" {
+		t.Setenv("APPDATA", directory)
+	} else {
+		t.Setenv("XDG_CONFIG_HOME", directory)
+	}
+	return directory
+}
 
 func TestStoreRoundTrip(t *testing.T) {
 	store := New(filepath.Join(t.TempDir(), "nested", "config.json"))

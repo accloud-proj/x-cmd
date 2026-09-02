@@ -3,7 +3,7 @@ set -eu
 
 REPOSITORY="accloud-proj/x-cmd"
 VERSION="latest"
-INSTALL_DIR="${HOME}/.local/bin"
+INSTALL_DIR="${HOME}/.local/x-cmd"
 GITHUB_MIRROR=""
 BUILT_IN_GITHUB_MIRROR="https://github.uzfdafw.cc"
 

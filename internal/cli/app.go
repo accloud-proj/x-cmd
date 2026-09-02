@@ -858,14 +858,21 @@ func (a *App) interactive() error {
 		if err != nil {
 			fmt.Fprintln(a.output, "[错误]", err)
 		}
+		a.waitForMenu(2)
+	}
+}
+
+func (a *App) waitForMenu(seconds int) {
+	for remaining := seconds; remaining > 0; remaining-- {
+		fmt.Fprintf(a.output, "[提示] %d 秒后返回\n", remaining)
 		if a.pause != nil {
-			a.pause(2 * time.Second)
+			a.pause(time.Second)
 		}
 	}
 }
 
 func (a *App) interactiveSystem() error {
-	a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  其他. 返回")
+	a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  0. 返回")
 	action := map[string]string{"1": "start", "2": "status", "3": "stop"}[a.prompt("操作")]
 	if action == "" {
 		return nil
@@ -874,7 +881,7 @@ func (a *App) interactiveSystem() error {
 }
 
 func (a *App) interactiveCore() error {
-	a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  其他. 返回")
+	a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  0. 返回")
 	switch a.prompt("操作") {
 	case "1":
 		return a.core([]string{"show"})
@@ -892,7 +899,7 @@ func (a *App) interactiveSubscriptions() error {
 	if err := a.listSubscriptions(); err != nil {
 		return err
 	}
-	a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 查看节点  其他. 返回")
+	a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 查看节点  0. 返回")
 	switch strings.ToLower(a.prompt("操作")) {
 	case "a":
 		return a.subscriptions([]string{"add", "--name", a.prompt("名称"), "--url", a.prompt("链接")})
@@ -926,7 +933,7 @@ func (a *App) interactiveNodes() error {
 	if err := a.printNodes(data, ""); err != nil {
 		return err
 	}
-	a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  其他. 返回")
+	a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
 	switch strings.ToLower(a.prompt("操作")) {
 	case "s":
 		return a.node([]string{"use", a.prompt("节点序号或 ID")})
@@ -944,8 +951,9 @@ func (a *App) interactiveConfig() error {
 	if err := a.config([]string{"show"}); err != nil {
 		return err
 	}
-	a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  其他. 返回")
-	key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[a.prompt("配置项")]
+	a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  0. 返回")
+	choice := a.prompt("配置项")
+	key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[choice]
 	if key == "" {
 		return nil
 	}

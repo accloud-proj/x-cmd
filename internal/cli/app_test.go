@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/accloud-proj/x-cmd/internal/state"
 	"github.com/accloud-proj/x-cmd/internal/version"
@@ -22,14 +23,36 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
-func TestNewAlwaysUsesDefaultConfigPath(t *testing.T) {
-	t.Setenv("X_CMD_CONFIG", filepath.Join(t.TempDir(), "custom.json"))
-	want, err := state.DefaultPath()
-	if err != nil {
+func TestWaitForMenuShowsCountdown(t *testing.T) {
+	var output bytes.Buffer
+	var pauses []time.Duration
+	app := &App{
+		output: &output,
+		pause:  func(duration time.Duration) { pauses = append(pauses, duration) },
+	}
+	app.waitForMenu(2)
+	if got := output.String(); !strings.Contains(got, "2 秒后返回") || !strings.Contains(got, "1 秒后返回") {
+		t.Fatalf("countdown missing from output: %q", got)
+	}
+	if len(pauses) != 2 || pauses[0] != time.Second || pauses[1] != time.Second {
+		t.Fatalf("unexpected pauses: %#v", pauses)
+	}
+}
+
+func TestConfigPathCommandIsRemoved(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{
+		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
+		output: &output,
+	}
+	if err := app.Run([]string{"config", "path", "show"}); err == nil {
+		t.Fatal("config path command should be rejected")
+	}
+	if err := app.Run([]string{"config", "show"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := New().store.Path(); got != want {
-		t.Fatalf("config path = %q, want %q", got, want)
+	if strings.Contains(output.String(), "config-path") {
+		t.Fatalf("config path should not be displayed: %q", output.String())
 	}
 }
 

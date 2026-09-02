@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repository = "accloud-proj/x-cmd"
-$InstallDir = Join-Path $env:LOCALAPPDATA "x-cmd\bin"
+$InstallDir = Join-Path $env:LOCALAPPDATA "x-cmd"
 $builtInGitHubMirror = "https://github.uzfdafw.cc"
 if ($GitHubMirror) {
     if ($GitHubMirror -notmatch '^https?://') { $GitHubMirror = "https://$GitHubMirror" }

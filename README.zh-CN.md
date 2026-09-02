@@ -140,6 +140,8 @@ x-cmd update check
 x-cmd update install
 ```
 
+更新器从 `accloud-proj/x-cmd` 最新 Release 下载当前系统和架构对应的资产，并替换当前程序。安装目录必须可写。Windows 会将旧程序保留为 `x-cmd.exe.old`。
+
 ## GitHub 镜像管理
 
 ```sh
@@ -149,8 +151,6 @@ x-cmd github-mirror delete
 ```
 
 `set` 会切换到指定镜像，`delete` 会恢复自动模式（优先直连 GitHub，失败后使用内置镜像）。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
-
-更新器从 `accloud-proj/x-cmd` 最新 Release 下载当前系统和架构对应的资产，并替换当前程序。安装目录必须可写。Windows 会将旧程序保留为 `x-cmd.exe.old`。
 
 ## 自动构建与发布
 

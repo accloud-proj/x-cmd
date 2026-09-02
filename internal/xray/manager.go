@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/accloud-proj/x-cmd/internal/appdir"
 )
 
 type Release struct {
@@ -114,11 +116,11 @@ func Install(ctx context.Context, version, baseURL, destination string) (string,
 }
 
 func defaultInstallDir() string {
-	dir, err := os.UserConfigDir()
+	dir, err := appdir.Default()
 	if err != nil {
 		return filepath.Join(".", "xray")
 	}
-	return filepath.Join(dir, "x-cmd", "xray")
+	return dir
 }
 
 func platformAsset() (string, error) {
