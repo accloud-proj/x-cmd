@@ -68,6 +68,10 @@ func New(path string) *Store {
 	return &Store{path: path}
 }
 
+func (s *Store) Path() string {
+	return s.path
+}
+
 func (s *Store) RuntimeDir() string {
 	return filepath.Join(filepath.Dir(s.path), "runtime")
 }

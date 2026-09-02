@@ -63,3 +63,31 @@ func TestGitHubMirrorLifecycle(t *testing.T) {
 		t.Fatalf("mirror was not deleted: %q", data.Settings.GitHubMirror)
 	}
 }
+
+func TestUninstallRequiresConfirmationAndRemovesData(t *testing.T) {
+	var output bytes.Buffer
+	var configPath string
+	var runtimeDir string
+	app := &App{
+		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
+		input:  bufio.NewReader(strings.NewReader("")),
+		output: &output,
+		uninstall: func(config, runtime string) error {
+			configPath = config
+			runtimeDir = runtime
+			return nil
+		},
+	}
+	if err := app.Run([]string{"uninstall"}); err == nil {
+		t.Fatal("expected confirmation error")
+	}
+	if err := app.Run([]string{"uninstall", "--yes"}); err != nil {
+		t.Fatal(err)
+	}
+	if configPath != app.store.Path() || runtimeDir != app.store.RuntimeDir() {
+		t.Fatalf("unexpected uninstall paths: %q %q", configPath, runtimeDir)
+	}
+	if !strings.Contains(output.String(), "卸载完成") {
+		t.Fatalf("unexpected output: %s", output.String())
+	}
+}

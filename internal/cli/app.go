@@ -16,15 +16,17 @@ import (
 	"github.com/accloud-proj/x-cmd/internal/nodes"
 	"github.com/accloud-proj/x-cmd/internal/state"
 	"github.com/accloud-proj/x-cmd/internal/systemproxy"
+	"github.com/accloud-proj/x-cmd/internal/uninstaller"
 	"github.com/accloud-proj/x-cmd/internal/updater"
 	"github.com/accloud-proj/x-cmd/internal/version"
 	"github.com/accloud-proj/x-cmd/internal/xray"
 )
 
 type App struct {
-	store  *state.Store
-	input  *bufio.Reader
-	output io.Writer
+	store     *state.Store
+	input     *bufio.Reader
+	output    io.Writer
+	uninstall func(string, string) error
 }
 
 func New() *App {
@@ -52,6 +54,8 @@ func (a *App) Run(args []string) error {
 		return a.proxy(args[1:])
 	case "update":
 		return a.update(args[1:])
+	case "uninstall":
+		return a.uninstallApp(args[1:])
 	case "core":
 		return a.core(args[1:])
 	case "config":
@@ -65,6 +69,29 @@ func (a *App) Run(args []string) error {
 	default:
 		return fmt.Errorf("未知命令 %q，运行 x-cmd help 查看帮助", args[0])
 	}
+}
+
+func (a *App) uninstallApp(args []string) error {
+	flags := newFlagSet("uninstall")
+	confirmed := flags.Bool("yes", false, "确认删除程序和全部配置")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if !*confirmed || flags.NArg() != 0 {
+		return fmt.Errorf("卸载会删除程序和全部配置；确认请运行 x-cmd uninstall --yes")
+	}
+	if err := a.service("stop"); err != nil {
+		return err
+	}
+	remove := a.uninstall
+	if remove == nil {
+		remove = uninstaller.Remove
+	}
+	if err := remove(a.store.Path(), a.store.RuntimeDir()); err != nil {
+		return err
+	}
+	fmt.Fprintln(a.output, "卸载完成")
+	return nil
 }
 
 func (a *App) core(args []string) error {
@@ -707,7 +734,7 @@ func (a *App) update(args []string) error {
 
 func (a *App) interactive() error {
 	for {
-		fmt.Fprintln(a.output, "\nX-CMD  xray 管理工具\n1. 内核信息/安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点并清理失效项\n5. 修改配置\n6. 启动连接\n7. 停止连接\n8. 连接状态\n9. 全局代理开关\n0. 退出")
+		fmt.Fprintln(a.output, "\nX-CMD  xray 管理工具\n1. 内核信息/安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点并清理失效项\n5. 修改配置\n6. 启动连接\n7. 停止连接\n8. 连接状态\n9. 全局代理开关\nu. 卸载\n0. 退出")
 		choice := a.prompt("请选择")
 		var err error
 		switch choice {
@@ -737,6 +764,10 @@ func (a *App) interactive() error {
 					action = "disable"
 				}
 				err = a.proxy([]string{action})
+			}
+		case "u", "U":
+			if strings.EqualFold(a.prompt("卸载会删除程序和全部配置，确认? [y/N]"), "y") {
+				return a.uninstallApp([]string{"--yes"})
 			}
 		case "0":
 			return nil
@@ -837,6 +868,7 @@ func (a *App) printHelp() {
 	start | stop | status
 	proxy enable|disable|status
 	update check|install
+	uninstall --yes
 	github-mirror show|set <URL>|delete
   core show|install --version VERSION [--dir DIR]
 	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT]

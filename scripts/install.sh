@@ -11,7 +11,7 @@ usage() {
 Install x-cmd from GitHub Releases.
 
 Usage: install.sh [options]
-  --version VERSION       Release version, for example v0.2.0 (default: latest)
+  --version VERSION       Release version, for example v0.4.0 (default: latest)
   --install-dir DIR       Installation directory (default: ~/.local/bin)
   --github-mirror DOMAIN  GitHub mirror domain, for example github.uzfdafw.cc
   -h, --help              Show this help

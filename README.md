@@ -36,7 +36,7 @@ sh install.sh
 Install a specific version/location or use a GitHub mirror:
 
 ```sh
-sh install.sh --version v0.2.0 --install-dir "$HOME/.local/bin"
+sh install.sh --version v0.4.0 --install-dir "$HOME/.local/bin"
 sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
@@ -65,7 +65,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scri
 Optional parameters:
 
 ```powershell
-.\install.ps1 -Version v0.2.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
+.\install.ps1 -Version v0.4.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
 .\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
 
@@ -200,7 +200,7 @@ x-cmd github-mirror delete
 
 ## Release Builds
 
-[The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.2.0` creates a Release with archives and `checksums.txt`.
+[The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.4.0` creates a Release with archives and `checksums.txt`.
 
 ## Data Directory
 
@@ -214,16 +214,11 @@ Override the complete configuration file path with `X_CMD_CONFIG`. Subscription 
 
 ## Uninstall
 
-First stop xray and disable the system proxy:
-
 ```sh
-x-cmd proxy disable
-x-cmd stop
+x-cmd uninstall --yes
 ```
 
-For the default installation, remove the executable with `rm -f "$HOME/.local/bin/x-cmd"` on Linux/macOS, or `Remove-Item "$env:LOCALAPPDATA\x-cmd\bin\x-cmd.exe" -Force` in Windows PowerShell. If a custom installation directory was used, remove the executable from that directory instead.
-
-To also remove all settings, subscriptions, nodes, and runtime data, run `rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/x-cmd"` on Linux, `rm -rf "$HOME/Library/Application Support/x-cmd"` on macOS, or `Remove-Item "$env:APPDATA\x-cmd" -Recurse -Force` in Windows PowerShell.
+This command disables the system proxy, stops xray, and removes `x-cmd` itself, update backups, the configuration file, and runtime data. Stored subscriptions and nodes are permanently deleted as well. When using the interactive menu, select `u. Uninstall` and confirm.
 
 ## License
 

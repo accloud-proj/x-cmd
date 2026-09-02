@@ -36,7 +36,7 @@ sh install.sh
 指定版本、安装目录或 GitHub 镜像：
 
 ```sh
-sh install.sh --version v0.2.0 --install-dir "$HOME/.local/bin"
+sh install.sh --version v0.4.0 --install-dir "$HOME/.local/bin"
 sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
@@ -65,7 +65,7 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scri
 可选参数：
 
 ```powershell
-.\install.ps1 -Version v0.2.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
+.\install.ps1 -Version v0.4.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
 .\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
 
@@ -200,7 +200,7 @@ x-cmd github-mirror delete
 
 ## 自动构建与发布
 
-[发布工作流](.github/workflows/release.yml)构建 Windows amd64/arm64/386、Linux amd64/arm64/armv7 和 macOS amd64/arm64。推送例如 `v0.2.0` 的标签会创建 Release，并上传各平台压缩包及 `checksums.txt`。
+[发布工作流](.github/workflows/release.yml)构建 Windows amd64/arm64/386、Linux amd64/arm64/armv7 和 macOS amd64/arm64。推送例如 `v0.4.0` 的标签会创建 Release，并上传各平台压缩包及 `checksums.txt`。
 
 ## 数据目录
 
@@ -214,16 +214,11 @@ GitHub 镜像站与其他设置一起保存在 `config.json` 的 `settings.githu
 
 ## 卸载
 
-先停止 xray 并关闭系统代理：
-
 ```sh
-x-cmd proxy disable
-x-cmd stop
+x-cmd uninstall --yes
 ```
 
-Linux/macOS 默认安装可执行 `rm -f "$HOME/.local/bin/x-cmd"`；Windows PowerShell 默认安装可执行 `Remove-Item "$env:LOCALAPPDATA\x-cmd\bin\x-cmd.exe" -Force`。如果安装时指定了目录，请删除对应目录中的可执行文件。
-
-如需同时清除配置、订阅、节点和运行数据，Linux 执行 `rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/x-cmd"`，macOS 执行 `rm -rf "$HOME/Library/Application Support/x-cmd"`，Windows PowerShell 执行 `Remove-Item "$env:APPDATA\x-cmd" -Recurse -Force`。
+该命令会关闭系统代理、停止 xray，并删除 `x-cmd` 自身、更新备份、配置文件和运行数据。配置中的订阅与节点也会一并永久删除。无参数运行交互菜单时，也可以选择 `u. 卸载` 并确认。
 
 ## 许可证
 
