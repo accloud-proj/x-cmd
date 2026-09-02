@@ -9,9 +9,9 @@
 
 `x-cmd` 是一个 xray-core 命令行封装和管理工具。全部操作均支持适合脚本调用的命令参数，无参数运行时则进入交互式菜单。
 
-> **无需直连 GitHub：** 在无法直接访问 GitHub 的地区，安装时可使用 GitHub 镜像前缀，或将 GitHub 主机替换为自建反向代理。安装器会保存该设置，后续下载 xray-core 内核和更新软件时自动继续使用。
+> **无需直连 GitHub：** 在无法直接访问 GitHub 的地区，安装时可使用 GitHub 镜像域名。安装器会保存该设置，后续下载 xray-core 内核和更新软件时自动继续使用。
 >
-> 当前可使用替换主机 `github.uzfdafw.cc`，安装时传入 `--github-host github.uzfdafw.cc` 即可。
+> 当前 GitHub 镜像站域名为 `github.uzfdafw.cc`。
 
 ## 功能
 
@@ -37,39 +37,21 @@ sh install.sh
 
 ```sh
 sh install.sh --version v0.2.0 --install-dir "$HOME/.local/bin"
-sh install.sh --github-mirror "https://你的GitHub镜像地址"
-sh install.sh --github-host "github.uzfdafw.cc"
+sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
-镜像地址会添加到完整 GitHub URL 之前，例如：
-
-```text
-https://你的GitHub镜像地址/https://github.com/accloud-proj/x-cmd/releases/latest/download/...
-```
-
-`--github-host` 只替换协议和主机，同时保留 GitHub 原始路径，适合使用 Nginx 等反向代理：
+镜像域名会替换 GitHub URL 的协议和主机，同时保留原始路径。例如：
 
 ```text
 https://github.com/accloud-proj/x-cmd/releases/latest/download/...
 https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/...
 ```
 
-`--github-mirror` 和 `--github-host` 不能同时使用。未带协议的主机默认使用 HTTPS；只有可信任的本地反代才建议显式传入 `http://host`。
-
-安装脚本本身也可以通过替换后的主机获取：
-
-```sh
-curl -fsSL https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/install.sh -o install.sh
-sh install.sh --github-host github.uzfdafw.cc
-```
-
-反向代理必须保留这些路径，并改写或代理 GitHub Release 资产重定向；否则客户端可能再次跳转到 GitHub 的资产域名。
-
 如果 GitHub 本身无法访问，可以先通过镜像中的 Release 地址下载安装脚本：
 
 ```sh
-MIRROR="https://你的GitHub镜像地址"
-curl -fsSL "$MIRROR/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
+MIRROR="https://github.uzfdafw.cc"
+curl -fsSL "$MIRROR/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
 sh install.sh --github-mirror "$MIRROR"
 ```
 
@@ -84,17 +66,14 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/main/scri
 
 ```powershell
 .\install.ps1 -Version v0.2.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
-.\install.ps1 -GitHubMirror "https://你的GitHub镜像地址"
-.\install.ps1 -GitHubHost "github.uzfdafw.cc"
+.\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
-
-同一主机可通过 `https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/install.ps1` 提供安装脚本。
 
 通过镜像获取 PowerShell 安装脚本：
 
 ```powershell
-$mirror = "https://你的GitHub镜像地址"
-Invoke-WebRequest "$mirror/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
+$mirror = "https://github.uzfdafw.cc"
+Invoke-WebRequest "$mirror/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
 .\install.ps1 -GitHubMirror $mirror
 ```
 
@@ -153,7 +132,6 @@ x-cmd core show
 x-cmd core install --version v25.8.3
 x-cmd core install --version v25.8.3 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
-x-cmd config set --download-url "https://你的镜像地址/https://github.com/XTLS/Xray-core/releases/download"
 ```
 
 ## 订阅与节点管理
@@ -208,6 +186,16 @@ x-cmd update check
 x-cmd update install
 ```
 
+## GitHub 镜像管理
+
+```sh
+x-cmd github-mirror show
+x-cmd github-mirror set github.uzfdafw.cc
+x-cmd github-mirror delete
+```
+
+`set` 会覆盖现有镜像，`delete` 会恢复直连 GitHub。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
+
 更新器从 `accloud-proj/x-cmd` 最新 Release 下载当前系统和架构对应的资产，并替换当前程序。安装目录必须可写。Windows 会将旧程序保留为 `x-cmd.exe.old`。
 
 ## 自动构建与发布
@@ -216,7 +204,26 @@ x-cmd update install
 
 ## 数据目录
 
-数据保存在操作系统用户配置目录下的 `x-cmd/config.json`。可通过 `X_CMD_CONFIG` 覆盖路径。订阅链接可能包含凭据，请勿公开该文件。
+GitHub 镜像站与其他设置一起保存在 `config.json` 的 `settings.github_mirror` 字段。默认路径为：
+
+- Windows：`%AppData%\x-cmd\config.json`
+- Linux：`$XDG_CONFIG_HOME/x-cmd/config.json`，未设置 `XDG_CONFIG_HOME` 时为 `~/.config/x-cmd/config.json`
+- macOS：`~/Library/Application Support/x-cmd/config.json`
+
+可通过 `X_CMD_CONFIG` 覆盖完整配置文件路径。订阅链接可能包含凭据，请勿公开该文件。
+
+## 卸载
+
+先停止 xray 并关闭系统代理：
+
+```sh
+x-cmd proxy disable
+x-cmd stop
+```
+
+Linux/macOS 默认安装可执行 `rm -f "$HOME/.local/bin/x-cmd"`；Windows PowerShell 默认安装可执行 `Remove-Item "$env:LOCALAPPDATA\x-cmd\bin\x-cmd.exe" -Force`。如果安装时指定了目录，请删除对应目录中的可执行文件。
+
+如需同时清除配置、订阅、节点和运行数据，Linux 执行 `rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/x-cmd"`，macOS 执行 `rm -rf "$HOME/Library/Application Support/x-cmd"`，Windows PowerShell 执行 `Remove-Item "$env:APPDATA\x-cmd" -Recurse -Force`。
 
 ## 许可证
 

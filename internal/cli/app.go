@@ -56,6 +56,8 @@ func (a *App) Run(args []string) error {
 		return a.core(args[1:])
 	case "config":
 		return a.config(args[1:])
+	case "github-mirror":
+		return a.githubMirror(args[1:])
 	case "sub", "subscription":
 		return a.subscriptions(args[1:])
 	case "node":
@@ -95,7 +97,7 @@ func (a *App) core(args []string) error {
 	if err != nil {
 		return err
 	}
-	rewriter, err := githuburl.New(data.Settings.GitHubMirror, data.Settings.GitHubHost)
+	rewriter, err := githuburl.New(data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
@@ -123,7 +125,7 @@ func (a *App) config(args []string) error {
 		return err
 	}
 	if len(args) == 0 || args[0] == "show" {
-		fmt.Fprintf(a.output, "download-url: %s\ngithub-mirror: %s\ngithub-host: %s\nxray-path: %s\ntest-url: %s\nlisten-port: %d\n", data.Settings.DownloadURL, data.Settings.GitHubMirror, data.Settings.GitHubHost, data.Settings.XrayPath, data.Settings.TestURL, data.Settings.ListenPort)
+		fmt.Fprintf(a.output, "download-url: %s\ngithub-mirror: %s\nxray-path: %s\ntest-url: %s\nlisten-port: %d\n", data.Settings.DownloadURL, data.Settings.GitHubMirror, data.Settings.XrayPath, data.Settings.TestURL, data.Settings.ListenPort)
 		return nil
 	}
 	if args[0] != "set" {
@@ -131,8 +133,7 @@ func (a *App) config(args []string) error {
 	}
 	flags := newFlagSet("config set")
 	downloadURL := flags.String("download-url", "", "xray release 下载基地址")
-	githubMirror := flags.String("github-mirror", "", "GitHub 镜像前缀")
-	githubHost := flags.String("github-host", "", "GitHub 替换主机")
+	githubMirror := flags.String("github-mirror", "", "GitHub 镜像域名")
 	xrayPath := flags.String("xray-path", "", "xray 可执行文件路径")
 	testURL := flags.String("test-url", "", "节点测试 URL")
 	listenPort := flags.Int("listen-port", 1091, "本地 mixed 代理端口")
@@ -141,27 +142,15 @@ func (a *App) config(args []string) error {
 	}
 	changed := map[string]bool{}
 	flags.Visit(func(item *flag.Flag) { changed[item.Name] = true })
-	if changed["github-mirror"] && changed["github-host"] {
-		return fmt.Errorf("GitHub 镜像和替换主机不能同时设置")
-	}
 	if changed["download-url"] {
 		data.Settings.DownloadURL = strings.TrimRight(*downloadURL, "/")
 	}
 	if changed["github-mirror"] {
-		rewriter, err := githuburl.New(*githubMirror, "")
+		rewriter, err := githuburl.New(*githubMirror)
 		if err != nil {
 			return err
 		}
 		data.Settings.GitHubMirror = rewriter.Mirror
-		data.Settings.GitHubHost = ""
-	}
-	if changed["github-host"] {
-		rewriter, err := githuburl.New("", *githubHost)
-		if err != nil {
-			return err
-		}
-		data.Settings.GitHubHost = rewriter.Host
-		data.Settings.GitHubMirror = ""
 	}
 	if changed["xray-path"] {
 		data.Settings.XrayPath = *xrayPath
@@ -177,6 +166,39 @@ func (a *App) config(args []string) error {
 	}
 	if len(changed) == 0 {
 		return fmt.Errorf("至少指定一个要修改的配置项")
+	}
+	return a.store.Save(data)
+}
+
+func (a *App) githubMirror(args []string) error {
+	action := "show"
+	if len(args) > 0 {
+		action = args[0]
+	}
+	data, err := a.store.Load()
+	if err != nil {
+		return err
+	}
+	switch action {
+	case "show":
+		fmt.Fprintln(a.output, emptyAs(data.Settings.GitHubMirror, "未配置"))
+		return nil
+	case "set":
+		if len(args) != 2 || strings.TrimSpace(args[1]) == "" {
+			return fmt.Errorf("用法: x-cmd github-mirror set <URL>")
+		}
+		rewriter, err := githuburl.New(args[1])
+		if err != nil {
+			return err
+		}
+		data.Settings.GitHubMirror = rewriter.Mirror
+	case "delete", "rm":
+		if len(args) != 1 {
+			return fmt.Errorf("用法: x-cmd github-mirror delete")
+		}
+		data.Settings.GitHubMirror = ""
+	default:
+		return fmt.Errorf("用法: x-cmd github-mirror show|set <URL>|delete")
 	}
 	return a.store.Save(data)
 }
@@ -658,7 +680,7 @@ func (a *App) update(args []string) error {
 	if err != nil {
 		return err
 	}
-	rewriter, err := githuburl.New(data.Settings.GitHubMirror, data.Settings.GitHubHost)
+	rewriter, err := githuburl.New(data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
@@ -792,8 +814,8 @@ func (a *App) interactiveConfig() error {
 	if err := a.config([]string{"show"}); err != nil {
 		return err
 	}
-	fmt.Fprintln(a.output, "1. 下载地址  2. xray 路径  3. 测试地址  4. GitHub 镜像  5. GitHub 主机  其他. 返回")
-	key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror", "5": "--github-host"}[a.prompt("配置项")]
+	fmt.Fprintln(a.output, "1. 下载地址  2. xray 路径  3. 测试地址  4. GitHub 镜像  其他. 返回")
+	key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[a.prompt("配置项")]
 	if key == "" {
 		return nil
 	}
@@ -815,8 +837,9 @@ func (a *App) printHelp() {
 	start | stop | status
 	proxy enable|disable|status
 	update check|install
+	github-mirror show|set <URL>|delete
   core show|install --version VERSION [--dir DIR]
-	config show|set [--download-url URL] [--github-mirror URL | --github-host HOST] [--xray-path PATH] [--test-url URL] [--listen-port PORT]
+	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT]
   sub list|add|edit|delete|update|nodes
 	node list|add|use|delete|test [--delete-invalid] [--subscription ID]
   version

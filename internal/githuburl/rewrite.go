@@ -8,39 +8,33 @@ import (
 
 type Rewriter struct {
 	Mirror string
-	Host   string
 }
 
-func New(mirror, host string) (Rewriter, error) {
-	if mirror != "" && host != "" {
-		return Rewriter{}, fmt.Errorf("GitHub 镜像和替换主机不能同时设置")
+func New(mirror string) (Rewriter, error) {
+	mirror = strings.TrimRight(mirror, "/")
+	if mirror == "" {
+		return Rewriter{}, nil
 	}
-	rewriter := Rewriter{Mirror: strings.TrimRight(mirror, "/"), Host: strings.TrimRight(host, "/")}
-	if rewriter.Host != "" && !strings.Contains(rewriter.Host, "://") {
-		rewriter.Host = "https://" + rewriter.Host
+	if !strings.Contains(mirror, "://") {
+		mirror = "https://" + mirror
 	}
-	if rewriter.Host != "" {
-		parsed, err := url.Parse(rewriter.Host)
-		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Path != "" {
-			return Rewriter{}, fmt.Errorf("无效 GitHub 替换主机 %q", host)
-		}
+	parsed, err := url.Parse(mirror)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Path != "" {
+		return Rewriter{}, fmt.Errorf("无效 GitHub 镜像域名 %q", mirror)
 	}
-	return rewriter, nil
+	return Rewriter{Mirror: mirror}, nil
 }
 
 func (r Rewriter) Rewrite(target string) (string, error) {
-	if r.Mirror != "" {
-		return r.Mirror + "/" + target, nil
-	}
-	if r.Host == "" {
+	if r.Mirror == "" {
 		return target, nil
 	}
 	parsedTarget, err := url.Parse(target)
 	if err != nil || parsedTarget.Host == "" {
 		return "", fmt.Errorf("无效 GitHub URL %q", target)
 	}
-	parsedHost, _ := url.Parse(r.Host)
-	parsedTarget.Scheme = parsedHost.Scheme
-	parsedTarget.Host = parsedHost.Host
+	parsedMirror, _ := url.Parse(r.Mirror)
+	parsedTarget.Scheme = parsedMirror.Scheme
+	parsedTarget.Host = parsedMirror.Host
 	return parsedTarget.String(), nil
 }

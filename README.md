@@ -9,9 +9,9 @@ English | [简体中文](README.zh-CN.md)
 
 `x-cmd` is a command-line wrapper and manager for xray-core. Every operation is available as a script-friendly command, while running it without arguments opens an interactive menu.
 
-> **GitHub access is optional:** In regions without direct GitHub access, installation supports either a GitHub mirror prefix or a replacement reverse-proxy host. The installer saves this setting, and `x-cmd` reuses it for future xray-core downloads and application updates.
+> **GitHub access is optional:** In regions without direct GitHub access, installation supports a GitHub mirror domain. The installer saves this setting, and `x-cmd` reuses it for future xray-core downloads and application updates.
 >
-> A replacement host is available at `github.uzfdafw.cc`. Pass it with `--github-host github.uzfdafw.cc` during installation.
+> The current GitHub mirror domain is `github.uzfdafw.cc`.
 
 ## Features
 
@@ -37,39 +37,21 @@ Install a specific version/location or use a GitHub mirror:
 
 ```sh
 sh install.sh --version v0.2.0 --install-dir "$HOME/.local/bin"
-sh install.sh --github-mirror "https://your-github-mirror.example"
-sh install.sh --github-host "github.uzfdafw.cc"
+sh install.sh --github-mirror github.uzfdafw.cc
 ```
 
-The mirror is prepended to the complete GitHub URL, producing a URL such as:
-
-```text
-https://your-github-mirror.example/https://github.com/accloud-proj/x-cmd/releases/latest/download/...
-```
-
-`--github-host` replaces only the scheme and host while preserving GitHub's path. It is intended for a reverse proxy such as Nginx:
+The mirror domain replaces the scheme and host while preserving the original GitHub path:
 
 ```text
 https://github.com/accloud-proj/x-cmd/releases/latest/download/...
 https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/...
 ```
 
-`--github-mirror` and `--github-host` are mutually exclusive. A host without a scheme uses HTTPS; pass `http://host` explicitly only for a trusted local proxy.
-
-The installer itself can also be obtained through the replacement host:
-
-```sh
-curl -fsSL https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/install.sh -o install.sh
-sh install.sh --github-host github.uzfdafw.cc
-```
-
-The reverse proxy must preserve these paths and rewrite/proxy GitHub Release asset redirects; otherwise the client may follow a redirect back to a GitHub asset host.
-
 If GitHub itself is unreachable, fetch the installer from the mirrored Release URL first:
 
 ```sh
-MIRROR="https://your-github-mirror.example"
-curl -fsSL "$MIRROR/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
+MIRROR="https://github.uzfdafw.cc"
+curl -fsSL "$MIRROR/accloud-proj/x-cmd/releases/latest/download/install.sh" -o install.sh
 sh install.sh --github-mirror "$MIRROR"
 ```
 
@@ -84,17 +66,14 @@ Optional parameters:
 
 ```powershell
 .\install.ps1 -Version v0.2.0 -InstallDir "$env:LOCALAPPDATA\x-cmd\bin"
-.\install.ps1 -GitHubMirror "https://your-github-mirror.example"
-.\install.ps1 -GitHubHost "github.uzfdafw.cc"
+.\install.ps1 -GitHubMirror github.uzfdafw.cc
 ```
-
-The same host can serve the installer at `https://github.uzfdafw.cc/accloud-proj/x-cmd/releases/latest/download/install.ps1`.
 
 To obtain the PowerShell installer through the mirror:
 
 ```powershell
-$mirror = "https://your-github-mirror.example"
-Invoke-WebRequest "$mirror/https://github.com/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
+$mirror = "https://github.uzfdafw.cc"
+Invoke-WebRequest "$mirror/accloud-proj/x-cmd/releases/latest/download/install.ps1" -OutFile install.ps1
 .\install.ps1 -GitHubMirror $mirror
 ```
 
@@ -153,7 +132,6 @@ x-cmd core show
 x-cmd core install --version v25.8.3
 x-cmd core install --version v25.8.3 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
-x-cmd config set --download-url "https://your-mirror.example/https://github.com/XTLS/Xray-core/releases/download"
 ```
 
 ## Subscription and Node Management
@@ -210,13 +188,42 @@ x-cmd update install
 
 The updater downloads the current platform artifact from the latest `accloud-proj/x-cmd` Release and replaces the executable. Its directory must be writable. Windows retains the previous executable as `x-cmd.exe.old`.
 
+## GitHub Mirror Management
+
+```sh
+x-cmd github-mirror show
+x-cmd github-mirror set github.uzfdafw.cc
+x-cmd github-mirror delete
+```
+
+`set` replaces the current mirror, while `delete` restores direct GitHub access. `x-cmd config show` and `x-cmd config set --github-mirror URL` remain available.
+
 ## Release Builds
 
 [The release workflow](.github/workflows/release.yml) builds Windows amd64/arm64/386, Linux amd64/arm64/armv7, and macOS amd64/arm64. Pushing a tag such as `v0.2.0` creates a Release with archives and `checksums.txt`.
 
 ## Data Directory
 
-Data is stored in `x-cmd/config.json` under the OS user configuration directory. Override the location with `X_CMD_CONFIG`. Subscription URLs may contain credentials; do not publish this file.
+The GitHub mirror is stored with the other settings in the `settings.github_mirror` field of `config.json`. Default paths are:
+
+- Windows: `%AppData%\x-cmd\config.json`
+- Linux: `$XDG_CONFIG_HOME/x-cmd/config.json`, or `~/.config/x-cmd/config.json` when `XDG_CONFIG_HOME` is unset
+- macOS: `~/Library/Application Support/x-cmd/config.json`
+
+Override the complete configuration file path with `X_CMD_CONFIG`. Subscription URLs may contain credentials; do not publish this file.
+
+## Uninstall
+
+First stop xray and disable the system proxy:
+
+```sh
+x-cmd proxy disable
+x-cmd stop
+```
+
+For the default installation, remove the executable with `rm -f "$HOME/.local/bin/x-cmd"` on Linux/macOS, or `Remove-Item "$env:LOCALAPPDATA\x-cmd\bin\x-cmd.exe" -Force` in Windows PowerShell. If a custom installation directory was used, remove the executable from that directory instead.
+
+To also remove all settings, subscriptions, nodes, and runtime data, run `rm -rf "${XDG_CONFIG_HOME:-$HOME/.config}/x-cmd"` on Linux, `rm -rf "$HOME/Library/Application Support/x-cmd"` on macOS, or `Remove-Item "$env:APPDATA\x-cmd" -Recurse -Force` in Windows PowerShell.
 
 ## License
 

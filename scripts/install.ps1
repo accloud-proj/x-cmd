@@ -2,18 +2,14 @@
 param(
     [string]$Version = "latest",
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "x-cmd\bin"),
-    [string]$GitHubMirror = "",
-    [string]$GitHubHost = ""
+    [string]$GitHubMirror = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repository = "accloud-proj/x-cmd"
-if ($GitHubMirror -and $GitHubHost) {
-    throw "-GitHubMirror and -GitHubHost cannot be used together"
-}
-if ($GitHubHost) {
-    if ($GitHubHost -notmatch '^https?://') { $GitHubHost = "https://$GitHubHost" }
-    $GitHubHost = $GitHubHost.TrimEnd('/')
+if ($GitHubMirror) {
+    if ($GitHubMirror -notmatch '^https?://') { $GitHubMirror = "https://$GitHubMirror" }
+    $GitHubMirror = $GitHubMirror.TrimEnd('/')
 }
 $architecture = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
     "X64" { "amd64" }
@@ -32,10 +28,8 @@ else {
 }
 
 function Get-GitHubUrl([string]$FileName) {
-    $target = "https://github.com/$repository/releases/$releasePath/$FileName"
-    if ($GitHubMirror) { return "$($GitHubMirror.TrimEnd('/'))/$target" }
-    if ($GitHubHost) { return "$GitHubHost/$repository/releases/$releasePath/$FileName" }
-    return $target
+    if ($GitHubMirror) { return "$GitHubMirror/$repository/releases/$releasePath/$FileName" }
+    return "https://github.com/$repository/releases/$releasePath/$FileName"
 }
 
 $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("x-cmd-" + [guid]::NewGuid())
@@ -59,10 +53,6 @@ try {
     Copy-Item (Join-Path $temporaryDirectory "x-cmd.exe") $installedPath -Force
     if ($GitHubMirror) {
         & $installedPath config set --github-mirror $GitHubMirror
-        if ($LASTEXITCODE -ne 0) { throw "Failed to save GitHub routing settings" }
-    }
-    elseif ($GitHubHost) {
-        & $installedPath config set --github-host $GitHubHost
         if ($LASTEXITCODE -ne 0) { throw "Failed to save GitHub routing settings" }
     }
     Write-Host "Installed x-cmd to $installedPath"

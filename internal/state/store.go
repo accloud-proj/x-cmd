@@ -17,7 +17,6 @@ type Settings struct {
 	XrayPath     string `json:"xray_path"`
 	DownloadURL  string `json:"download_url"`
 	GitHubMirror string `json:"github_mirror,omitempty"`
-	GitHubHost   string `json:"github_host,omitempty"`
 	TestURL      string `json:"test_url"`
 	ActiveNodeID string `json:"active_node_id,omitempty"`
 	ListenPort   int    `json:"listen_port"`
