@@ -6,8 +6,25 @@ import (
 	"strings"
 )
 
+const DefaultMirror = "https://github.uzfdafw.cc"
+
 type Rewriter struct {
 	Mirror string
+}
+
+func Candidates(mirror string) ([]Rewriter, error) {
+	configured, err := New(mirror)
+	if err != nil {
+		return nil, err
+	}
+	if configured.Mirror != "" {
+		return []Rewriter{configured}, nil
+	}
+	fallback, err := New(DefaultMirror)
+	if err != nil {
+		return nil, err
+	}
+	return []Rewriter{{}, fallback}, nil
 }
 
 func New(mirror string) (Rewriter, error) {

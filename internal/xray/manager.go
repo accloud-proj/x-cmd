@@ -3,6 +3,7 @@ package xray
 import (
 	"archive/zip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,44 @@ import (
 	"strings"
 	"time"
 )
+
+type Release struct {
+	TagName     string    `json:"tag_name"`
+	PublishedAt time.Time `json:"published_at"`
+	Draft       bool      `json:"draft"`
+}
+
+func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "x-cmd")
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("获取 Xray Release 失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("获取 Xray Release 失败: HTTP %s", response.Status)
+	}
+	var releases []Release
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
+	}
+	result := make([]Release, 0, limit)
+	for _, release := range releases {
+		if release.Draft || release.TagName == "" {
+			continue
+		}
+		result = append(result, release)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result, nil
+}
 
 func Version(ctx context.Context, binary string) (string, error) {
 	if binary == "" {
@@ -28,7 +67,7 @@ func Version(ctx context.Context, binary string) (string, error) {
 
 func Install(ctx context.Context, version, baseURL, destination string) (string, error) {
 	if version == "" {
-		return "", fmt.Errorf("必须指定版本，例如 v25.8.3")
+		return "", fmt.Errorf("必须指定版本，例如 v26.3.27")
 	}
 	if destination == "" {
 		destination = defaultInstallDir()

@@ -1,12 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$Version = "latest",
-    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA "x-cmd\bin"),
     [string]$GitHubMirror = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repository = "accloud-proj/x-cmd"
+$InstallDir = Join-Path $env:LOCALAPPDATA "x-cmd\bin"
+$builtInGitHubMirror = "https://github.uzfdafw.cc"
 if ($GitHubMirror) {
     if ($GitHubMirror -notmatch '^https?://') { $GitHubMirror = "https://$GitHubMirror" }
     $GitHubMirror = $GitHubMirror.TrimEnd('/')
@@ -33,14 +34,26 @@ function Get-GitHubUrl([string]$FileName) {
     return $target
 }
 
+function Invoke-GitHubDownload([string]$FileName, [string]$Destination) {
+    try {
+        Invoke-WebRequest -Uri (Get-GitHubUrl $FileName) -OutFile $Destination
+    }
+    catch {
+        if ($GitHubMirror) { throw }
+        $script:GitHubMirror = $builtInGitHubMirror
+        Write-Warning "GitHub is unavailable. Switching to the built-in mirror."
+        Invoke-WebRequest -Uri (Get-GitHubUrl $FileName) -OutFile $Destination
+    }
+}
+
 $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("x-cmd-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
     $archive = Join-Path $temporaryDirectory $asset
     $checksums = Join-Path $temporaryDirectory "checksums.txt"
     Write-Host "Downloading $asset..."
-    Invoke-WebRequest -Uri (Get-GitHubUrl $asset) -OutFile $archive
-    Invoke-WebRequest -Uri (Get-GitHubUrl "checksums.txt") -OutFile $checksums
+    Invoke-GitHubDownload $asset $archive
+    Invoke-GitHubDownload "checksums.txt" $checksums
 
     $checksumLine = Get-Content $checksums | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
     if (-not $checksumLine) { throw "No checksum found for $asset" }

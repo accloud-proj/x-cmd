@@ -5,14 +5,14 @@ REPOSITORY="accloud-proj/x-cmd"
 VERSION="latest"
 INSTALL_DIR="${HOME}/.local/bin"
 GITHUB_MIRROR=""
+BUILT_IN_GITHUB_MIRROR="https://github.uzfdafw.cc"
 
 usage() {
   cat <<'EOF'
 Install x-cmd from GitHub Releases.
 
 Usage: install.sh [options]
-  --version VERSION       Release version, for example v0.4.1 (default: latest)
-  --install-dir DIR       Installation directory (default: ~/.local/bin)
+  --version VERSION       Release version, for example v0.5.0 (default: latest)
   --github-mirror URL     GitHub mirror prefix, for example https://github.uzfdafw.cc
   -h, --help              Show this help
 EOF
@@ -21,7 +21,6 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) VERSION="${2:?missing value for --version}"; shift 2 ;;
-    --install-dir) INSTALL_DIR="${2:?missing value for --install-dir}"; shift 2 ;;
     --github-mirror) GITHUB_MIRROR="${2:?missing value for --github-mirror}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
@@ -82,9 +81,24 @@ download() {
   fi
 }
 
+download_github() {
+  file_name="$1"
+  destination="$2"
+  if [ -n "$GITHUB_MIRROR" ]; then
+    download "$(github_url "$file_name")" "$destination"
+    return
+  fi
+  if download "$(github_url "$file_name")" "$destination"; then
+    return
+  fi
+  GITHUB_MIRROR="$BUILT_IN_GITHUB_MIRROR"
+  echo "GitHub is unavailable. Switching to the built-in mirror." >&2
+  download "$(github_url "$file_name")" "$destination"
+}
+
 echo "Downloading ${ASSET}..."
-download "$(github_url "$ASSET")" "$TMP_DIR/$ASSET"
-download "$(github_url checksums.txt)" "$TMP_DIR/checksums.txt"
+download_github "$ASSET" "$TMP_DIR/$ASSET"
+download_github checksums.txt "$TMP_DIR/checksums.txt"
 
 EXPECTED="$(awk -v asset="$ASSET" '$2 == asset || $2 == "*" asset { print $1; exit }' "$TMP_DIR/checksums.txt")"
 if [ -z "$EXPECTED" ]; then

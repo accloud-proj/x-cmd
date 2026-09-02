@@ -38,3 +38,21 @@ func TestAcceptsMirrorPrefixPath(t *testing.T) {
 		t.Fatalf("Rewrite() = %q", got)
 	}
 }
+
+func TestCandidatesUseBuiltInMirrorOnlyAsFallback(t *testing.T) {
+	candidates, err := Candidates("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 || candidates[0].Mirror != "" || candidates[1].Mirror != DefaultMirror {
+		t.Fatalf("unexpected candidates: %#v", candidates)
+	}
+
+	candidates, err = Candidates("https://mirror.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Mirror != "https://mirror.example" {
+		t.Fatalf("unexpected configured candidates: %#v", candidates)
+	}
+}

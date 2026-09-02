@@ -9,7 +9,7 @@ import (
 
 func main() {
 	if err := cli.New().Run(os.Args[1:]); err != nil {
-		fmt.Fprintln(os.Stderr, "错误:", err)
+		fmt.Fprintln(os.Stderr, "[错误]", err)
 		os.Exit(1)
 	}
 }
