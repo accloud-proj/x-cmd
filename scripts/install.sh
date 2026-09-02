@@ -121,5 +121,5 @@ install -m 0755 "$TMP_DIR/x-cmd" "$INSTALL_DIR/x-cmd"
 if [ -n "$GITHUB_MIRROR" ]; then
   "$INSTALL_DIR/x-cmd" config set --github-mirror "$GITHUB_MIRROR"
 fi
-echo "Installed x-cmd to ${INSTALL_DIR}/x-cmd"
-case ":$PATH:" in *":$INSTALL_DIR:"*) ;; *) echo "Add ${INSTALL_DIR} to PATH to run x-cmd directly." ;; esac
+echo "Installed executable: ${INSTALL_DIR}/x-cmd"
+case ":$PATH:" in *":$INSTALL_DIR:"*) ;; *) echo "Add this directory to PATH: ${INSTALL_DIR}" ;; esac

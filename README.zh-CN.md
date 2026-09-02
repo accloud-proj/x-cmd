@@ -137,7 +137,7 @@ x-cmd proxy status
 x-cmd proxy disable
 ```
 
-`system start` 使用活动节点，默认在 `127.0.0.1:1091` 提供 HTTP/SOCKS mixed 入站。选择其他节点后需要重启连接。系统代理功能会修改 Windows 当前用户 Internet Settings、macOS 已启用网络服务，或 Linux GNOME `gsettings`。该功能不是透明代理或 TUN。
+`system start` 使用活动节点，默认在 `127.0.0.1:1091` 提供 HTTP/SOCKS mixed 入站。选择其他节点后需要重启连接。系统代理功能会修改 Windows 当前用户 Internet Settings、macOS 已启用网络服务，或 Linux GNOME `gsettings`。在 Linux 上还会将代理环境变量写入默认 shell 的启动配置，重新打开 shell 后生效；关闭代理后同样需要重新打开 shell。该功能不是透明代理或 TUN。
 
 ## 更新 x-cmd
 

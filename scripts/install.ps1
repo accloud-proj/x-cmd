@@ -69,9 +69,9 @@ try {
         & $installedPath config set --github-mirror $GitHubMirror
         if ($LASTEXITCODE -ne 0) { throw "Failed to save GitHub routing settings" }
     }
-    Write-Host "Installed x-cmd to $installedPath"
+    Write-Host "Installed executable: $installedPath"
     if (($env:Path -split ';') -notcontains $InstallDir) {
-        Write-Host "Add $InstallDir to PATH to run x-cmd directly."
+        Write-Host "Add this directory to PATH: $InstallDir"
     }
 }
 finally {

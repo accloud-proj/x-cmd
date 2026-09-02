@@ -137,7 +137,7 @@ x-cmd proxy status
 x-cmd proxy disable
 ```
 
-`system start` uses the active node and exposes an HTTP/SOCKS mixed inbound at `127.0.0.1:1091` by default. Restart after selecting another node. System proxy control updates Windows user Internet Settings, enabled macOS network services, or GNOME `gsettings` on Linux. It is not a transparent proxy or TUN.
+`system start` uses the active node and exposes an HTTP/SOCKS mixed inbound at `127.0.0.1:1091` by default. Restart after selecting another node. System proxy control updates Windows user Internet Settings, enabled macOS network services, or GNOME `gsettings` on Linux. On Linux it also writes proxy environment variables to the default shell startup file; reopen the shell after enabling or disabling the proxy. It is not a transparent proxy or TUN.
 
 ## Updating x-cmd
 
