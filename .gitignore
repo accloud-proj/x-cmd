@@ -1,5 +1,6 @@
 /x-cmd
 /x-cmd.exe
+/dist/
 
 .vscode/
 .idea/

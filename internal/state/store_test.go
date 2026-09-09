@@ -27,6 +27,9 @@ func TestStoreRoundTrip(t *testing.T) {
 	if data.Settings.ListenPort != 1091 {
 		t.Fatalf("default listen port = %d", data.Settings.ListenPort)
 	}
+	if data.Settings.AllowLAN {
+		t.Fatal("LAN access must be disabled by default")
+	}
 	data.Subscriptions = append(data.Subscriptions, Subscription{ID: NewID(), Name: "example", URL: "https://example.com/sub"})
 	if err := store.Save(data); err != nil {
 		t.Fatal(err)

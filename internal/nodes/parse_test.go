@@ -1,7 +1,9 @@
 package nodes
 
 import (
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 )
 
@@ -92,5 +94,19 @@ func TestNativeXrayOutboundRequiresSettings(t *testing.T) {
 	link := "xray://" + base64.RawURLEncoding.EncodeToString([]byte(`{"protocol":"hysteria"}`))
 	if _, err := Parse(link); err == nil {
 		t.Fatal("expected missing settings error")
+	}
+}
+
+func TestTCPHTTPHeaderOmitsEmptyHost(t *testing.T) {
+	parsed, err := Parse("vless://00000000-0000-0000-0000-000000000001@example.com:443?type=tcp&headerType=http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(parsed.Outbound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(`"Host"`)) {
+		t.Fatalf("empty Host header must be omitted: %s", raw)
 	}
 }

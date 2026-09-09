@@ -38,6 +38,8 @@ fi
 case "$(uname -s)" in
   Linux) OS="linux" ;;
   Darwin) OS="darwin" ;;
+  FreeBSD) OS="freebsd" ;;
+  OpenBSD) OS="openbsd" ;;
   *) echo "Unsupported operating system: $(uname -s)" >&2; exit 1 ;;
 esac
 
@@ -45,6 +47,8 @@ case "$(uname -m)" in
   x86_64|amd64) ARCH="amd64" ;;
   arm64|aarch64) ARCH="arm64" ;;
   armv7l|armv7) ARCH="arm" ;;
+  riscv64) ARCH="riscv64" ;;
+  loongarch64|loong64) ARCH="loong64" ;;
   *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
 esac
 

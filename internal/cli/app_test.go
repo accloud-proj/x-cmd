@@ -3,13 +3,15 @@ package cli
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/accloud-proj/x-cmd/internal/githuburl"
 	"github.com/accloud-proj/x-cmd/internal/state"
 	"github.com/accloud-proj/x-cmd/internal/version"
 )
@@ -25,19 +27,19 @@ func TestVersionFlag(t *testing.T) {
 	}
 }
 
-func TestWaitForMenuShowsCountdown(t *testing.T) {
+func TestWaitForMenuWaitsForKey(t *testing.T) {
 	var output bytes.Buffer
-	var pauses []time.Duration
+	waited := false
 	app := &App{
-		output: &output,
-		pause:  func(duration time.Duration) { pauses = append(pauses, duration) },
+		output:  &output,
+		waitKey: func() error { waited = true; return nil },
 	}
-	app.waitForMenu(2)
-	if got := output.String(); got != "\n[提示] 2 秒后返回\n" {
+	app.waitForMenu()
+	if got := output.String(); got != "\n[提示] 按任意键返回" {
 		t.Fatalf("unexpected countdown output: %q", got)
 	}
-	if len(pauses) != 1 || pauses[0] != 2*time.Second {
-		t.Fatalf("unexpected pauses: %#v", pauses)
+	if !waited {
+		t.Fatal("wait key was not called")
 	}
 }
 
@@ -122,6 +124,260 @@ func TestSystemCommandGroupsServiceActions(t *testing.T) {
 	}
 	if err := app.Run([]string{"status"}); err == nil {
 		t.Fatal("top-level status should be rejected")
+	}
+}
+
+func TestActivateOutputsShellProxyConfiguration(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	var output bytes.Buffer
+	app := &App{store: store, output: &output, portOpen: func(int) bool { return true }}
+	if err := app.Run([]string{"activate", "bash"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"export HTTP_PROXY=http://127.0.0.1:1091",
+		"export HTTPS_PROXY=http://127.0.0.1:1091",
+		"export ALL_PROXY=socks5://127.0.0.1:1091",
+		"export NO_PROXY=localhost,127.0.0.1,::1",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("activate output missing %q: %q", expected, output.String())
+		}
+	}
+}
+
+func TestActivateAndShellRequireRunningProxy(t *testing.T) {
+	app := &App{
+		store:    state.New(filepath.Join(t.TempDir(), "config.json")),
+		output:   io.Discard,
+		portOpen: func(int) bool { return false },
+		runShell: func(string, []string, []string) error { t.Fatal("shell must not start"); return nil },
+	}
+	for _, command := range []string{"activate", "shell"} {
+		if err := app.Run([]string{command, "pwsh"}); err == nil || !strings.Contains(err.Error(), "连接尚未启动") {
+			t.Fatalf("%s should require a running proxy, got %v", command, err)
+		}
+	}
+}
+
+func TestShellInheritsEnvironmentAndAddsProxy(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	t.Setenv("X_CMD_INHERITED", "yes")
+	var executable string
+	var args []string
+	var environment []string
+	app := &App{store: store, output: io.Discard, portOpen: func(int) bool { return true }}
+	app.runShell = func(name string, commandArgs, env []string) error {
+		executable, args, environment = name, commandArgs, env
+		return nil
+	}
+	if err := app.Run([]string{"shell", "powershell"}); err != nil {
+		t.Fatal(err)
+	}
+	if executable != "powershell" || !reflect.DeepEqual(args, []string{"-NoExit"}) {
+		t.Fatalf("shell command = %q %#v", executable, args)
+	}
+	joined := strings.Join(environment, "\n")
+	for _, expected := range []string{"X_CMD_INHERITED=yes", "HTTP_PROXY=http://127.0.0.1:1091", "ALL_PROXY=socks5://127.0.0.1:1091"} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("shell environment missing %q", expected)
+		}
+	}
+}
+
+func TestInteractiveSystemRefreshesOnEnterAndContainsNodeTest(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{
+		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
+		input:  bufio.NewReader(strings.NewReader("\n0\n")),
+		output: &output,
+	}
+	if err := app.interactiveSystem(); err != nil {
+		t.Fatal(err)
+	}
+	if count := strings.Count(output.String(), "4. 测试全部节点"); count != 2 {
+		t.Fatalf("connection menu shown %d times, want 2: %q", count, output.String())
+	}
+}
+
+func TestInteractiveSystemWaitsAfterInvalidChoice(t *testing.T) {
+	var output bytes.Buffer
+	waits := 0
+	app := &App{
+		store:   state.New(filepath.Join(t.TempDir(), "config.json")),
+		input:   bufio.NewReader(strings.NewReader("invalid\n0\n")),
+		output:  &output,
+		waitKey: func() error { waits++; return nil },
+	}
+	if err := app.interactiveSystem(); err != nil {
+		t.Fatal(err)
+	}
+	if waits != 1 || !strings.Contains(output.String(), "按任意键返回") {
+		t.Fatalf("invalid choice waits = %d, output = %q", waits, output.String())
+	}
+}
+
+func TestMainMenuIsFullScreenAndContainsProxyShellActions(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{
+		input:  bufio.NewReader(strings.NewReader("0\n")),
+		output: &output,
+	}
+	if err := app.interactive(); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"\x1b[2J\x1b[H", "当前版本: " + version.Version, "6. 进入 Shell", "7. 查看临时激活命令"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("main menu missing %q: %q", expected, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "4. 测试全部节点") {
+		t.Fatalf("node test should not remain in main menu: %q", output.String())
+	}
+	for _, expected := range []string{"\x1b[2J\x1b[H  \x1b[1;96mX-CMD", "\n  当前版本:", "\n  1. 内核信息与安装", "\n  0. 退出"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("main menu is not indented: missing %q in %q", expected, output.String())
+		}
+	}
+}
+
+func TestInteractiveMessagesAreIndented(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{
+		input:   bufio.NewReader(strings.NewReader("invalid\n0\n")),
+		output:  &output,
+		waitKey: func() error { return nil },
+	}
+	if err := app.interactive(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "  请选择:   [提示] 无效选项") || !strings.Contains(output.String(), "\n  [提示] 按任意键返回") {
+		t.Fatalf("interactive messages are not indented: %q", output.String())
+	}
+}
+
+func TestClearScreenPrintsBannerAtTop(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{output: &output, banner: "BANNER\n"}
+	app.clearScreen()
+	if got, want := output.String(), "\x1b[2J\x1b[HBANNER\n"; got != want {
+		t.Fatalf("clear output = %q, want %q", got, want)
+	}
+}
+
+func TestInteractiveConfigChangesListenPort(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	app := &App{
+		store:   store,
+		input:   bufio.NewReader(strings.NewReader("5\n2080\n0\n")),
+		output:  io.Discard,
+		waitKey: func() error { return nil },
+	}
+	if err := app.interactiveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Settings.ListenPort != 2080 {
+		t.Fatalf("listen port = %d, want 2080", data.Settings.ListenPort)
+	}
+}
+
+func TestInteractiveConfigEnablesLANAccess(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	app := &App{
+		store:   store,
+		input:   bufio.NewReader(strings.NewReader("6\ny\n0\n")),
+		output:  io.Discard,
+		waitKey: func() error { return nil },
+	}
+	if err := app.interactiveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !data.Settings.AllowLAN {
+		t.Fatal("LAN access was not enabled")
+	}
+}
+
+func TestInteractiveConfigDisablesLANAccess(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Settings.AllowLAN = true
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		store:   store,
+		input:   bufio.NewReader(strings.NewReader("6\nn\n0\n")),
+		output:  io.Discard,
+		waitKey: func() error { return nil },
+	}
+	if err := app.interactiveConfig(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data.Settings.AllowLAN {
+		t.Fatal("LAN access was not disabled")
+	}
+}
+
+func TestMenuProxyActionsUseAutomaticShellDetection(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	var output bytes.Buffer
+	detected := 0
+	app := &App{
+		store:    store,
+		input:    bufio.NewReader(strings.NewReader("6\n7\n0\n")),
+		output:   &output,
+		portOpen: func(int) bool { return true },
+		waitKey:  func() error { return nil },
+		detectShell: func() (string, error) {
+			detected++
+			return "pwsh", nil
+		},
+		runShell: func(name string, _ []string, _ []string) error {
+			if name != "pwsh" {
+				t.Fatalf("shell = %q, want pwsh", name)
+			}
+			return nil
+		},
+	}
+	if err := app.interactive(); err != nil {
+		t.Fatal(err)
+	}
+	if detected != 2 || !strings.Contains(output.String(), "自动识别 Shell: pwsh") {
+		t.Fatalf("detected = %d, output = %q", detected, output.String())
+	}
+}
+
+func TestReturningFromNestedNodeMenuDoesNotWait(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Subscriptions = []state.Subscription{{ID: "sub", Name: "example"}}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	waits := 0
+	app := &App{
+		store:   store,
+		input:   bufio.NewReader(strings.NewReader("n\n1\n0\n0\n")),
+		output:  io.Discard,
+		waitKey: func() error { waits++; return nil },
+	}
+	if err := app.interactiveSubscriptions(); err != nil {
+		t.Fatal(err)
+	}
+	if waits != 0 {
+		t.Fatalf("returning with 0 waited %d times", waits)
 	}
 }
 
@@ -282,40 +538,16 @@ func TestInteractiveNodeActionReturnsToNodeMenu(t *testing.T) {
 	}
 	var output bytes.Buffer
 	app := &App{
-		store:  store,
-		input:  bufio.NewReader(strings.NewReader("s\n1\n0\n")),
-		output: &output,
-		pause:  func(time.Duration) {},
+		store:   store,
+		input:   bufio.NewReader(strings.NewReader("s\n1\n0\n")),
+		output:  &output,
+		waitKey: func() error { return nil },
 	}
 	if err := app.interactiveNodes(""); err != nil {
 		t.Fatal(err)
 	}
 	if count := strings.Count(output.String(), "s. 选择"); count != 2 {
 		t.Fatalf("node menu shown %d times, want 2: %q", count, output.String())
-	}
-}
-
-func TestInteractiveGlobalProxyOpensSubmenu(t *testing.T) {
-	store := state.New(filepath.Join(t.TempDir(), "config.json"))
-	var output bytes.Buffer
-	app := &App{
-		store:  store,
-		input:  bufio.NewReader(strings.NewReader("7\n0\n0\n")),
-		output: &output,
-		pause:  func(time.Duration) {},
-	}
-	if err := app.interactive(); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(output.String(), "1. 开启全局代理  2. 查看状态  3. 关闭全局代理  0. 返回") {
-		t.Fatalf("global proxy submenu missing: %q", output.String())
-	}
-	data, err := store.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if data.Settings.GlobalProxy {
-		t.Fatal("opening the submenu should not enable the global proxy")
 	}
 }
 
@@ -344,6 +576,52 @@ func TestGitHubMirrorLifecycle(t *testing.T) {
 	}
 	if data.Settings.GitHubMirror != "" {
 		t.Fatalf("mirror was not deleted: %q", data.Settings.GitHubMirror)
+	}
+}
+
+func TestSlowGitHubDirectConnectionPrefersBuiltInMirror(t *testing.T) {
+	var output bytes.Buffer
+	var minimumBytesPerSecond int64
+	app := &App{
+		output: &output,
+		githubProbe: func(_ context.Context, _ string, minimum int64) (bool, float64, error) {
+			minimumBytesPerSecond = minimum
+			return false, 6250, nil
+		},
+	}
+	candidates, err := app.githubCandidates(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 || candidates[0].Mirror != githuburl.DefaultMirror {
+		t.Fatalf("unexpected candidates: %#v", candidates)
+	}
+	if minimumBytesPerSecond != 12500 {
+		t.Fatalf("minimum speed = %d bytes/s, want 12500", minimumBytesPerSecond)
+	}
+	if !strings.Contains(output.String(), "低于 100 kbit/s") {
+		t.Fatalf("missing slow connection notice: %q", output.String())
+	}
+}
+
+func TestConfiguredGitHubMirrorSkipsSpeedTest(t *testing.T) {
+	called := false
+	app := &App{
+		output: io.Discard,
+		githubProbe: func(context.Context, string, int64) (bool, float64, error) {
+			called = true
+			return false, 0, nil
+		},
+	}
+	candidates, err := app.githubCandidates(context.Background(), "https://mirror.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Fatal("configured mirror must skip the GitHub speed test")
+	}
+	if len(candidates) != 1 || candidates[0].Mirror != "https://mirror.example" {
+		t.Fatalf("configured mirror changed: %#v", candidates)
 	}
 }
 

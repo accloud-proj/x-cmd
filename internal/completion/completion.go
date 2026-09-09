@@ -45,14 +45,14 @@ func Candidates(args []string) []string {
 
 func optionsFor(args []string) []string {
 	if len(args) == 0 {
-		return []string{"completion", "config", "core", "github-mirror", "help", "node", "proxy", "sub", "subscription", "system", "uninstall", "update", "version"}
+		return []string{"activate", "completion", "config", "core", "github-mirror", "help", "node", "shell", "sub", "subscription", "system", "uninstall", "update", "version"}
 	}
 	if len(args) == 1 {
 		switch args[0] {
 		case "system":
 			return []string{"start", "status", "stop"}
-		case "proxy":
-			return []string{"disable", "enable", "status"}
+		case "activate", "shell":
+			return []string{"bash", "cmd", "fish", "powershell", "pwsh", "sh", "zsh"}
 		case "update":
 			return []string{"check", "install"}
 		case "uninstall":
@@ -78,7 +78,7 @@ func optionsFor(args []string) []string {
 		case "core install":
 			return []string{"--dir", "--version"}
 		case "config set":
-			return []string{"--download-url", "--github-mirror", "--listen-port", "--test-url", "--xray-path"}
+			return []string{"--allow-lan", "--download-url", "--github-mirror", "--listen-port", "--test-url", "--xray-path"}
 		case "sub add":
 			return []string{"--name", "--url"}
 		case "sub edit", "subscription edit":

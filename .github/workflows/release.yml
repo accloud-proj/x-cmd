@@ -34,12 +34,38 @@ jobs:
             goarch: arm
             goarm: "7"
             archive: x-cmd_linux_arm.tar.gz
+          - goos: linux
+            goarch: riscv64
+            archive: x-cmd_linux_riscv64.tar.gz
+          - goos: linux
+            goarch: loong64
+            archive: x-cmd_linux_loong64.tar.gz
           - goos: darwin
             goarch: amd64
             archive: x-cmd_darwin_amd64.tar.gz
           - goos: darwin
             goarch: arm64
             archive: x-cmd_darwin_arm64.tar.gz
+          - goos: freebsd
+            goarch: amd64
+            archive: x-cmd_freebsd_amd64.tar.gz
+          - goos: freebsd
+            goarch: arm
+            goarm: "7"
+            archive: x-cmd_freebsd_arm.tar.gz
+          - goos: freebsd
+            goarch: arm64
+            archive: x-cmd_freebsd_arm64.tar.gz
+          - goos: openbsd
+            goarch: amd64
+            archive: x-cmd_openbsd_amd64.tar.gz
+          - goos: openbsd
+            goarch: arm
+            goarm: "7"
+            archive: x-cmd_openbsd_arm.tar.gz
+          - goos: openbsd
+            goarch: arm64
+            archive: x-cmd_openbsd_arm64.tar.gz
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

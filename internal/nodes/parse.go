@@ -243,14 +243,22 @@ func streamSettings(network, security, sni, host, path, headerType string, query
 	}
 	switch network {
 	case "ws":
-		settings["wsSettings"] = map[string]any{"path": path, "headers": map[string]any{"Host": host}}
+		wsSettings := map[string]any{"path": path}
+		if host != "" {
+			wsSettings["headers"] = map[string]any{"Host": host}
+		}
+		settings["wsSettings"] = wsSettings
 	case "grpc":
 		settings["grpcSettings"] = map[string]any{"serviceName": defaultString(queryValue(query, "serviceName"), path)}
 	case "http", "h2":
 		settings["httpSettings"] = map[string]any{"path": path, "host": splitNonEmpty(host)}
 	case "tcp":
 		if headerType == "http" {
-			settings["tcpSettings"] = map[string]any{"header": map[string]any{"type": "http", "request": map[string]any{"path": splitNonEmpty(path), "headers": map[string]any{"Host": splitNonEmpty(host)}}}}
+			request := map[string]any{"path": splitNonEmpty(path)}
+			if hosts := splitNonEmpty(host); len(hosts) > 0 {
+				request["headers"] = map[string]any{"Host": hosts}
+			}
+			settings["tcpSettings"] = map[string]any{"header": map[string]any{"type": "http", "request": request}}
 		}
 	}
 	return settings

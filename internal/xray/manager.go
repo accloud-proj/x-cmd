@@ -22,6 +22,7 @@ type Release struct {
 	TagName     string    `json:"tag_name"`
 	PublishedAt time.Time `json:"published_at"`
 	Draft       bool      `json:"draft"`
+	Prerelease  bool      `json:"prerelease"`
 }
 
 type releaseFeed struct {
@@ -64,7 +65,7 @@ func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 	}
 	result := make([]Release, 0, limit)
 	for _, release := range releases {
-		if release.Draft || release.TagName == "" {
+		if release.Draft || release.Prerelease || !stableVersionTag(release.TagName) {
 			continue
 		}
 		result = append(result, release)
@@ -73,6 +74,11 @@ func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 		}
 	}
 	return result, nil
+}
+
+func stableVersionTag(tag string) bool {
+	version := strings.TrimPrefix(strings.TrimSpace(tag), "v")
+	return version != "" && !strings.Contains(version, "-")
 }
 
 func Version(ctx context.Context, binary string) (string, error) {
@@ -144,13 +150,26 @@ func defaultInstallDir() string {
 }
 
 func platformAsset() (string, error) {
-	arch := map[string]string{"amd64": "64", "386": "32", "arm64": "arm64-v8a", "arm": "arm32-v7a"}[runtime.GOARCH]
+	return platformAssetFor(runtime.GOOS, runtime.GOARCH)
+}
+
+func platformAssetFor(goos, goarch string) (string, error) {
+	arch := map[string]string{
+		"amd64": "64", "386": "32", "arm64": "arm64-v8a", "arm": "arm32-v7a",
+		"riscv64": "riscv64", "loong64": "loong64",
+	}[goarch]
 	if arch == "" {
-		return "", fmt.Errorf("不支持的 CPU 架构: %s", runtime.GOARCH)
+		return "", fmt.Errorf("不支持的 CPU 架构: %s", goarch)
 	}
-	osName := map[string]string{"windows": "windows", "linux": "linux", "darwin": "macos"}[runtime.GOOS]
+	osName := map[string]string{
+		"windows": "windows", "linux": "linux", "darwin": "macos",
+		"freebsd": "freebsd", "openbsd": "openbsd",
+	}[goos]
 	if osName == "" {
-		return "", fmt.Errorf("不支持的操作系统: %s", runtime.GOOS)
+		return "", fmt.Errorf("不支持的操作系统: %s", goos)
+	}
+	if (goarch == "riscv64" || goarch == "loong64") && goos != "linux" {
+		return "", fmt.Errorf("不支持的平台组合: %s/%s", goos, goarch)
 	}
 	return "Xray-" + osName + "-" + arch + ".zip", nil
 }

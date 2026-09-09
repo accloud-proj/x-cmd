@@ -16,8 +16,8 @@ import (
 	"github.com/accloud-proj/x-cmd/internal/completion"
 	"github.com/accloud-proj/x-cmd/internal/githuburl"
 	"github.com/accloud-proj/x-cmd/internal/nodes"
+	"github.com/accloud-proj/x-cmd/internal/shellenv"
 	"github.com/accloud-proj/x-cmd/internal/state"
-	"github.com/accloud-proj/x-cmd/internal/systemproxy"
 	"github.com/accloud-proj/x-cmd/internal/uninstaller"
 	"github.com/accloud-proj/x-cmd/internal/updater"
 	"github.com/accloud-proj/x-cmd/internal/version"
@@ -25,17 +25,56 @@ import (
 )
 
 type App struct {
-	store     *state.Store
-	input     *bufio.Reader
-	output    io.Writer
-	uninstall func(string, string) error
-	pause     func(time.Duration)
-	serviceFn func(string) error
+	store       *state.Store
+	input       *bufio.Reader
+	output      io.Writer
+	banner      string
+	uninstall   func(string, string) error
+	serviceFn   func(string) error
+	runShell    func(string, []string, []string) error
+	portOpen    func(int) bool
+	waitKey     func() error
+	githubProbe func(context.Context, string, int64) (bool, float64, error)
+	detectShell func() (string, error)
 }
 
-func New() *App {
+type indentWriter struct {
+	writer      io.Writer
+	prefix      string
+	atLineStart bool
+}
+
+func (w *indentWriter) Write(content []byte) (int, error) {
+	indented := make([]byte, 0, len(content)+len(w.prefix))
+	for _, character := range content {
+		if w.atLineStart && character != '\n' {
+			indented = append(indented, w.prefix...)
+			w.atLineStart = false
+		}
+		indented = append(indented, character)
+		if character == '\n' {
+			w.atLineStart = true
+		}
+	}
+	written, err := w.writer.Write(indented)
+	if err != nil {
+		return 0, err
+	}
+	if written != len(indented) {
+		return 0, io.ErrShortWrite
+	}
+	return len(content), nil
+}
+
+const minimumGitHubSpeedBytesPerSecond = 100_000 / 8
+
+func New(banners ...string) *App {
 	path, _ := state.DefaultPath()
-	return &App{store: state.New(path), input: bufio.NewReader(os.Stdin), output: os.Stdout, pause: time.Sleep}
+	banner := ""
+	if len(banners) > 0 {
+		banner = banners[0]
+	}
+	return &App{store: state.New(path), input: bufio.NewReader(os.Stdin), output: os.Stdout, banner: banner}
 }
 
 func (a *App) Run(args []string) error {
@@ -51,8 +90,10 @@ func (a *App) Run(args []string) error {
 		return nil
 	case "system":
 		return a.system(args[1:])
-	case "proxy":
-		return a.proxy(args[1:])
+	case "activate":
+		return a.activate(args[1:])
+	case "shell":
+		return a.shell(args[1:])
 	case "update":
 		return a.update(args[1:])
 	case "uninstall":
@@ -72,6 +113,62 @@ func (a *App) Run(args []string) error {
 	default:
 		return fmt.Errorf("未知命令 %q，运行 x-cmd help 查看帮助", args[0])
 	}
+}
+
+func (a *App) activate(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("用法: x-cmd activate [sh|bash|zsh|fish|powershell|pwsh|cmd]")
+	}
+	shell := ""
+	if len(args) == 1 {
+		shell = args[0]
+	}
+	data, err := a.store.Load()
+	if err != nil {
+		return err
+	}
+	if !a.isPortOpen(data.Settings.ListenPort) {
+		return fmt.Errorf("连接尚未启动，请先运行 x-cmd system start")
+	}
+	script, err := shellenv.Activation(shell, data.Settings.ListenPort)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(a.output, script)
+	return err
+}
+
+func (a *App) shell(args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("用法: x-cmd shell [sh|bash|zsh|fish|powershell|pwsh|cmd]")
+	}
+	shell := ""
+	if len(args) == 1 {
+		shell = args[0]
+	}
+	data, err := a.store.Load()
+	if err != nil {
+		return err
+	}
+	if !a.isPortOpen(data.Settings.ListenPort) {
+		return fmt.Errorf("连接尚未启动，请先运行 x-cmd system start")
+	}
+	name, commandArgs, err := shellenv.Command(shell)
+	if err != nil {
+		return err
+	}
+	run := a.runShell
+	if run == nil {
+		run = shellenv.Run
+	}
+	return run(name, commandArgs, shellenv.Environment(os.Environ(), data.Settings.ListenPort))
+}
+
+func (a *App) isPortOpen(port int) bool {
+	if a.portOpen != nil {
+		return a.portOpen(port)
+	}
+	return xray.PortOpen(port)
 }
 
 func (a *App) system(args []string) error {
@@ -189,7 +286,7 @@ func (a *App) core(args []string) error {
 	if err != nil {
 		return err
 	}
-	rewriters, err := githuburl.Candidates(data.Settings.GitHubMirror)
+	rewriters, err := a.githubCandidates(context.Background(), data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
@@ -201,7 +298,7 @@ func (a *App) core(args []string) error {
 			return rewriteErr
 		}
 		if index > 0 {
-			fmt.Fprintln(a.output, "[提示] GitHub 直连不可用，正在切换到内置镜像...")
+			a.printGitHubCandidateSwitch(rewriter)
 		}
 		fmt.Fprintf(a.output, "[信息] 正在下载 Xray %s...\n", *version)
 		binary, err = xray.Install(context.Background(), *version, downloadURL, *directory)
@@ -228,20 +325,20 @@ func (a *App) xrayReleases() error {
 	if err != nil {
 		return err
 	}
-	rewriters, err := githuburl.Candidates(data.Settings.GitHubMirror)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	rewriters, err := a.githubCandidates(ctx, data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	var releases []xray.Release
 	var selected githuburl.Rewriter
 	for index, rewriter := range rewriters {
 		if index > 0 {
-			fmt.Fprintln(a.output, "[提示] GitHub 直连不可用，正在切换到内置镜像...")
+			a.printGitHubCandidateSwitch(rewriter)
 		}
 		for _, source := range []string{
-			"https://api.github.com/repos/XTLS/Xray-core/releases?per_page=5",
+			"https://api.github.com/repos/XTLS/Xray-core/releases?per_page=20",
 			"https://github.com/XTLS/Xray-core/releases.atom",
 		} {
 			endpoint, rewriteErr := rewriter.Rewrite(source)
@@ -282,7 +379,7 @@ func (a *App) config(args []string) error {
 		return err
 	}
 	if len(args) == 0 || args[0] == "show" {
-		fmt.Fprintf(a.output, "download-url: %s\ngithub-mirror: %s\nxray-path: %s\ntest-url: %s\nlisten-port: %d\n", data.Settings.DownloadURL, emptyAs(data.Settings.GitHubMirror, "自动（直连失败时使用内置镜像）"), data.Settings.XrayPath, data.Settings.TestURL, data.Settings.ListenPort)
+		fmt.Fprintf(a.output, "download-url: %s\ngithub-mirror: %s\nxray-path: %s\ntest-url: %s\nlisten-port: %d\nallow-lan: %t\n", data.Settings.DownloadURL, emptyAs(data.Settings.GitHubMirror, "自动（直连失败时使用内置镜像）"), data.Settings.XrayPath, data.Settings.TestURL, data.Settings.ListenPort, data.Settings.AllowLAN)
 		return nil
 	}
 	if args[0] != "set" {
@@ -294,6 +391,7 @@ func (a *App) config(args []string) error {
 	xrayPath := flags.String("xray-path", "", "xray 可执行文件路径")
 	testURL := flags.String("test-url", "", "节点测试 URL")
 	listenPort := flags.Int("listen-port", 1091, "本地 mixed 代理端口")
+	allowLAN := flags.Bool("allow-lan", false, "允许局域网设备连接")
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -320,6 +418,9 @@ func (a *App) config(args []string) error {
 			return fmt.Errorf("监听端口必须在 1 到 65535 之间")
 		}
 		data.Settings.ListenPort = *listenPort
+	}
+	if changed["allow-lan"] {
+		data.Settings.AllowLAN = *allowLAN
 	}
 	if len(changed) == 0 {
 		return fmt.Errorf("至少指定一个要修改的配置项")
@@ -776,8 +877,15 @@ func (a *App) service(action string) error {
 	}
 	switch action {
 	case "start":
-		if xray.PortOpen(data.Settings.ListenPort) {
+		if a.isPortOpen(data.Settings.ListenPort) {
 			return fmt.Errorf("连接已启动，mixed 代理监听于 127.0.0.1:%d", data.Settings.ListenPort)
+		}
+		listenPort, err := xray.AvailablePort(data.Settings.ListenPort, data.Settings.AllowLAN)
+		if err != nil {
+			return err
+		}
+		if listenPort != data.Settings.ListenPort {
+			fmt.Fprintf(a.output, "[提示] 端口 %d 无法监听，自动改用端口 %d\n", data.Settings.ListenPort, listenPort)
 		}
 		index, err := findNode(data, data.Settings.ActiveNodeID)
 		if err != nil {
@@ -791,25 +899,20 @@ func (a *App) service(action string) error {
 		if binary == "" {
 			binary = "xray"
 		}
-		pid, configPath, err := xray.Start(context.Background(), binary, parsed.Outbound, data.Settings.ListenPort, a.store.RuntimeDir())
+		pid, configPath, err := xray.Start(context.Background(), binary, parsed.Outbound, listenPort, data.Settings.AllowLAN, a.store.RuntimeDir())
 		if err != nil {
 			return err
 		}
+		data.Settings.ListenPort = listenPort
 		data.Runtime = state.Runtime{PID: pid, NodeID: data.Nodes[index].ID, ConfigPath: configPath, StartedAt: time.Now()}
 		if err := a.store.Save(data); err != nil {
 			_ = xray.Stop(pid)
 			return err
 		}
-		fmt.Fprintf(a.output, "[成功] 连接已启动: %s，mixed 代理 127.0.0.1:%d，PID %d\n", data.Nodes[index].Name, data.Settings.ListenPort, pid)
+		fmt.Fprintf(a.output, "[成功] 连接已启动: %s，mixed 代理 %s:%d，PID %d\n", data.Nodes[index].Name, listenHost(data.Settings.AllowLAN), listenPort, pid)
 		return nil
 	case "stop":
-		if data.Settings.GlobalProxy {
-			if err := systemproxy.Disable(); err != nil {
-				return fmt.Errorf("关闭全局代理失败，连接未停止: %w", err)
-			}
-			data.Settings.GlobalProxy = false
-		}
-		if !xray.PortOpen(data.Settings.ListenPort) {
+		if !a.isPortOpen(data.Settings.ListenPort) {
 			data.Runtime = state.Runtime{}
 			if err := a.store.Save(data); err != nil {
 				return err
@@ -827,7 +930,7 @@ func (a *App) service(action string) error {
 		fmt.Fprintln(a.output, "[成功] 连接已停止")
 		return nil
 	case "status":
-		if !xray.PortOpen(data.Settings.ListenPort) {
+		if !a.isPortOpen(data.Settings.ListenPort) {
 			fmt.Fprintln(a.output, "状态: stopped")
 			return nil
 		}
@@ -835,46 +938,11 @@ func (a *App) service(action string) error {
 		if index, findErr := findNode(data, data.Runtime.NodeID); findErr == nil {
 			name = data.Nodes[index].Name
 		}
-		fmt.Fprintf(a.output, "状态: running\n节点: %s\nmixed 代理: 127.0.0.1:%d\nPID: %d\n全局代理: %t\n", name, data.Settings.ListenPort, data.Runtime.PID, data.Settings.GlobalProxy)
+		fmt.Fprintf(a.output, "状态: running\n节点: %s\nmixed 代理: %s:%d\nPID: %d\n", name, listenHost(data.Settings.AllowLAN), data.Settings.ListenPort, data.Runtime.PID)
 		return nil
 	default:
 		return fmt.Errorf("未知服务操作 %q", action)
 	}
-}
-
-func (a *App) proxy(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("用法: x-cmd proxy enable|disable|status")
-	}
-	data, err := a.store.Load()
-	if err != nil {
-		return err
-	}
-	switch args[0] {
-	case "enable", "on":
-		if !xray.PortOpen(data.Settings.ListenPort) {
-			return fmt.Errorf("连接尚未启动，请先运行 x-cmd system start")
-		}
-		if err := systemproxy.Enable(data.Settings.ListenPort); err != nil {
-			return fmt.Errorf("开启全局代理失败: %w", err)
-		}
-		data.Settings.GlobalProxy = true
-	case "disable", "off":
-		if err := systemproxy.Disable(); err != nil {
-			return fmt.Errorf("关闭全局代理失败: %w", err)
-		}
-		data.Settings.GlobalProxy = false
-	case "status":
-		fmt.Fprintf(a.output, "全局代理: %t\n地址: %s\n", data.Settings.GlobalProxy, systemproxy.Address(data.Settings.ListenPort))
-		return nil
-	default:
-		return fmt.Errorf("用法: x-cmd proxy enable|disable|status")
-	}
-	if err := a.store.Save(data); err != nil {
-		return err
-	}
-	fmt.Fprintf(a.output, "全局代理: %t\n", data.Settings.GlobalProxy)
-	return nil
 }
 
 func (a *App) update(args []string) error {
@@ -891,7 +959,7 @@ func (a *App) update(args []string) error {
 	if err != nil {
 		return err
 	}
-	rewriters, err := githuburl.Candidates(data.Settings.GitHubMirror)
+	rewriters, err := a.githubCandidates(ctx, data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
@@ -899,7 +967,7 @@ func (a *App) update(args []string) error {
 	var selected githuburl.Rewriter
 	for index, rewriter := range rewriters {
 		if index > 0 {
-			fmt.Fprintln(a.output, "[提示] GitHub 直连不可用，正在切换到内置镜像...")
+			a.printGitHubCandidateSwitch(rewriter)
 		}
 		release, err = updater.Latest(ctx, version.Repository, rewriter)
 		if err == nil {
@@ -931,7 +999,7 @@ func (a *App) update(args []string) error {
 	}
 	for index, rewriter := range installCandidates {
 		if index > 0 {
-			fmt.Fprintln(a.output, "[提示] GitHub 下载不可用，正在切换到内置镜像...")
+			a.printGitHubCandidateSwitch(rewriter)
 		}
 		err = updater.Install(ctx, release, rewriter)
 		if err == nil {
@@ -954,10 +1022,48 @@ func (a *App) persistSelectedMirror(data *state.Data, selected githuburl.Rewrite
 	return true
 }
 
+func (a *App) githubCandidates(ctx context.Context, configuredMirror string) ([]githuburl.Rewriter, error) {
+	candidates, err := githuburl.Candidates(configuredMirror)
+	if err != nil || configuredMirror != "" || len(candidates) < 2 {
+		return candidates, err
+	}
+	probeContext, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	probe := a.githubProbe
+	if probe == nil {
+		probe = githuburl.DownloadFastEnough
+	}
+	fast, bytesPerSecond, probeErr := probe(probeContext, "https://github.com/XTLS/Xray-core/archive/refs/heads/main.zip", minimumGitHubSpeedBytesPerSecond)
+	if probeErr == nil && fast {
+		return candidates, nil
+	}
+	if probeErr != nil {
+		fmt.Fprintf(a.output, "[提示] GitHub 直连不可达（%v），正在启用内置镜像...\n", probeErr)
+	} else {
+		fmt.Fprintf(a.output, "[提示] GitHub 直连速度 %.1f kbit/s，低于 100 kbit/s，正在启用内置镜像...\n", bytesPerSecond*8/1000)
+	}
+	return []githuburl.Rewriter{candidates[1], candidates[0]}, nil
+}
+
+func (a *App) printGitHubCandidateSwitch(rewriter githuburl.Rewriter) {
+	if rewriter.Mirror == "" {
+		fmt.Fprintln(a.output, "[提示] GitHub 镜像不可用，正在尝试直连...")
+		return
+	}
+	fmt.Fprintln(a.output, "[提示] GitHub 直连不可用，正在切换到镜像...")
+}
+
 func (a *App) interactive() error {
+	originalOutput := a.output
+	a.output = &indentWriter{writer: originalOutput, prefix: "  ", atLineStart: true}
+	defer func() { a.output = originalOutput }()
 	for {
-		a.printMenu("X-CMD  Xray 管理工具\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 测试全部节点\n5. 修改配置\n6. 连接管理\n7. 全局代理\nu. 卸载\n0. 退出")
+		a.clearScreen()
+		a.printMenu(fmt.Sprintf("X-CMD  Xray 管理工具\n当前版本: %s\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 修改配置\n5. 连接管理\n6. 进入 Shell\n7. 查看临时激活命令\nu. 卸载\n0. 退出", version.Version))
 		choice := a.prompt("请选择")
+		if choice == "" {
+			continue
+		}
 		var err error
 		returnedFromSubmenu := false
 		switch choice {
@@ -971,16 +1077,15 @@ func (a *App) interactive() error {
 			err = a.interactiveNodes("")
 			returnedFromSubmenu = true
 		case "4":
-			err = a.testNodes("", 10*time.Second, strings.EqualFold(a.prompt("确认自动删除失效节点? [y/N]"), "y"))
-		case "5":
 			err = a.interactiveConfig()
 			returnedFromSubmenu = true
-		case "6":
+		case "5":
 			err = a.interactiveSystem()
 			returnedFromSubmenu = true
+		case "6":
+			err = a.interactiveProxyAction(a.shell)
 		case "7":
-			err = a.interactiveProxy()
-			returnedFromSubmenu = true
+			err = a.interactiveProxyAction(a.activate)
 		case "u", "U":
 			if strings.EqualFold(a.prompt("卸载会删除程序和全部配置，确认? [y/N]"), "y") {
 				return a.uninstallApp([]string{"--yes"})
@@ -996,57 +1101,52 @@ func (a *App) interactive() error {
 		if returnedFromSubmenu && err == nil {
 			continue
 		}
-		a.waitForMenu(2)
+		a.waitForMenu()
 	}
 }
 
-func (a *App) waitForMenu(seconds int) {
-	if seconds <= 0 {
+func (a *App) waitForMenu() {
+	fmt.Fprint(a.output, "\n[提示] 按任意键返回")
+	if a.waitKey != nil {
+		_ = a.waitKey()
 		return
 	}
-	fmt.Fprintf(a.output, "\n[提示] %d 秒后返回\n", seconds)
-	if a.pause != nil {
-		a.pause(time.Duration(seconds) * time.Second)
-	}
+	_ = waitForKey(a.input)
 }
 
 func (a *App) interactiveSystem() error {
 	for {
-		a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  0. 返回")
+		a.clearScreen()
+		a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  4. 测试全部节点  0. 返回")
 		choice := a.prompt("操作")
-		if choice == "0" || choice == "" {
+		if choice == "" {
+			continue
+		}
+		if choice == "0" {
 			return nil
+		}
+		if choice == "4" {
+			a.finishSubmenuAction(a.testNodes("", 10*time.Second, strings.EqualFold(a.prompt("确认自动删除失效节点? [y/N]"), "y")))
+			continue
 		}
 		action := map[string]string{"1": "start", "2": "status", "3": "stop"}[choice]
 		if action == "" {
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			a.invalidMenuChoice()
 			continue
 		}
 		a.finishSubmenuAction(a.system([]string{action}))
 	}
 }
 
-func (a *App) interactiveProxy() error {
-	for {
-		a.printMenu("1. 开启全局代理  2. 查看状态  3. 关闭全局代理  0. 返回")
-		choice := a.prompt("操作")
-		if choice == "0" || choice == "" {
-			return nil
-		}
-		action := map[string]string{"1": "enable", "2": "status", "3": "disable"}[choice]
-		if action == "" {
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
-			continue
-		}
-		a.finishSubmenuAction(a.proxy([]string{action}))
-	}
-}
-
 func (a *App) interactiveCore() error {
 	for {
+		a.clearScreen()
 		a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  0. 返回")
 		choice := a.prompt("操作")
-		if choice == "0" || choice == "" {
+		if choice == "" {
+			continue
+		}
+		if choice == "0" {
 			return nil
 		}
 		var err error
@@ -1058,7 +1158,7 @@ func (a *App) interactiveCore() error {
 		case "3":
 			err = a.core([]string{"install", "--version", a.prompt("版本（例如 v26.3.27）")})
 		default:
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			a.invalidMenuChoice()
 			continue
 		}
 		a.finishSubmenuAction(err)
@@ -1067,12 +1167,16 @@ func (a *App) interactiveCore() error {
 
 func (a *App) interactiveSubscriptions() error {
 	for {
+		a.clearScreen()
 		if err := a.listSubscriptions(); err != nil {
 			return err
 		}
 		a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 节点管理  0. 返回")
 		choice := strings.ToLower(a.prompt("操作"))
-		if choice == "0" || choice == "" {
+		if choice == "" {
+			continue
+		}
+		if choice == "0" {
 			return nil
 		}
 		var err error
@@ -1107,8 +1211,11 @@ func (a *App) interactiveSubscriptions() error {
 				break
 			}
 			err = a.interactiveNodes(data.Subscriptions[index].ID)
+			if err == nil {
+				continue
+			}
 		default:
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			a.invalidMenuChoice()
 			continue
 		}
 		a.finishSubmenuAction(err)
@@ -1117,6 +1224,7 @@ func (a *App) interactiveSubscriptions() error {
 
 func (a *App) interactiveNodes(subscriptionID string) error {
 	for {
+		a.clearScreen()
 		data, err := a.store.Load()
 		if err != nil {
 			return err
@@ -1126,7 +1234,10 @@ func (a *App) interactiveNodes(subscriptionID string) error {
 		}
 		a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
 		choice := strings.ToLower(a.prompt("操作"))
-		if choice == "0" || choice == "" {
+		if choice == "" {
+			continue
+		}
+		if choice == "0" {
 			return nil
 		}
 		switch choice {
@@ -1149,7 +1260,7 @@ func (a *App) interactiveNodes(subscriptionID string) error {
 		case "t":
 			err = a.testNodes(subscriptionID, 10*time.Second, false)
 		default:
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+			a.invalidMenuChoice()
 			continue
 		}
 		a.finishSubmenuAction(err)
@@ -1158,38 +1269,105 @@ func (a *App) interactiveNodes(subscriptionID string) error {
 
 func (a *App) interactiveConfig() error {
 	for {
+		a.clearScreen()
 		if err := a.config([]string{"show"}); err != nil {
 			return err
 		}
-		a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  0. 返回")
+		a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  5. 本地监听端口  6. 允许局域网连接  0. 返回")
 		choice := a.prompt("配置项")
-		if choice == "0" || choice == "" {
-			return nil
-		}
-		key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror"}[choice]
-		if key == "" {
-			fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+		if choice == "" {
 			continue
 		}
-		a.finishSubmenuAction(a.config([]string{"set", key, a.prompt("新值")}))
+		if choice == "0" {
+			return nil
+		}
+		key := map[string]string{"1": "--download-url", "2": "--xray-path", "3": "--test-url", "4": "--github-mirror", "5": "--listen-port", "6": "--allow-lan"}[choice]
+		if key == "" {
+			a.invalidMenuChoice()
+			continue
+		}
+		valuePrompt := "新值"
+		if key == "--allow-lan" {
+			valuePrompt = "允许局域网连接? [y/N]"
+		}
+		value := a.prompt(valuePrompt)
+		if key == "--allow-lan" {
+			value = strconv.FormatBool(strings.EqualFold(value, "y") || strings.EqualFold(value, "yes") || strings.EqualFold(value, "true"))
+		}
+		args := []string{"set", key, value}
+		if key == "--allow-lan" {
+			args = []string{"set", key + "=" + value}
+		}
+		a.finishSubmenuAction(a.config(args))
 	}
+}
+
+func (a *App) interactiveProxyAction(action func([]string) error) error {
+	detect := a.detectShell
+	if detect == nil {
+		detect = shellenv.Detect
+	}
+	shell, err := detect()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(a.output, "[信息] 自动识别 Shell:", shell)
+	return action([]string{shell})
+}
+
+func listenHost(allowLAN bool) string {
+	address := xray.ListenAddress(allowLAN)
+	if strings.Contains(address, ":") {
+		return "[" + address + "]"
+	}
+	return address
 }
 
 func (a *App) finishSubmenuAction(err error) {
 	if err != nil {
 		fmt.Fprintln(a.output, "[错误]", err)
 	}
-	a.waitForMenu(2)
+	a.waitForMenu()
+}
+
+func (a *App) invalidMenuChoice() {
+	fmt.Fprintln(a.output, "[提示] 无效选项，请重新输入")
+	a.waitForMenu()
 }
 
 func (a *App) prompt(label string) string {
 	fmt.Fprint(a.output, label+": ")
 	value, _ := a.input.ReadString('\n')
+	if indented, ok := a.output.(*indentWriter); ok {
+		indented.atLineStart = true
+	}
 	return strings.TrimSpace(value)
 }
 
 func (a *App) printMenu(menu string) {
-	fmt.Fprintf(a.output, "\n\x1b[1;96m%s\x1b[0m\n", menu)
+	fmt.Fprintf(a.output, "\x1b[1;96m%s\x1b[0m\n", menu)
+}
+
+func (a *App) clearScreen() {
+	if indented, ok := a.output.(*indentWriter); ok {
+		fmt.Fprint(indented.writer, "\x1b[2J\x1b[H")
+		indented.atLineStart = true
+	} else {
+		fmt.Fprint(a.output, "\x1b[2J\x1b[H")
+	}
+	if a.banner != "" {
+		fmt.Fprint(a.output, a.banner)
+		if !strings.HasSuffix(a.banner, "\n") {
+			fmt.Fprintln(a.output)
+		}
+	}
+}
+
+func waitForKey(input *bufio.Reader) error {
+	if input == nil {
+		return nil
+	}
+	return readKey(input)
 }
 
 func (a *App) printHelp() {
@@ -1199,13 +1377,14 @@ func (a *App) printHelp() {
 
 命令:
 	system start|status|stop
-	proxy enable|disable|status
+	shell [sh|bash|zsh|fish|powershell|pwsh|cmd]
+	activate [sh|bash|zsh|fish|powershell|pwsh|cmd]
 	update check|install
 	uninstall [--yes]
 	completion install|uninstall [bash|zsh|fish|powershell]
 	github-mirror show|set <URL>|delete
 	core show|releases|install --version VERSION [--dir DIR]
-	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT]
+	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT] [--allow-lan BOOL]
   sub list|add|edit|delete|update|nodes
 	node list|add|use|delete|test [--delete-invalid] [--subscription 序号或名称]
   version

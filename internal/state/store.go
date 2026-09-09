@@ -22,7 +22,7 @@ type Settings struct {
 	TestURL      string `json:"test_url"`
 	ActiveNodeID string `json:"active_node_id,omitempty"`
 	ListenPort   int    `json:"listen_port"`
-	GlobalProxy  bool   `json:"global_proxy"`
+	AllowLAN     bool   `json:"allow_lan,omitempty"`
 }
 
 type Runtime struct {

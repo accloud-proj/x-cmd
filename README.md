@@ -9,7 +9,7 @@ English | [简体中文](README.zh-CN.md)
 
 `x-cmd` is a command-line wrapper and manager for xray-core. Every operation is available as a script-friendly command, while running it without arguments opens an interactive menu.
 
-> **GitHub access is optional:** The installers and client try GitHub first, then switch to the built-in mirror when direct access fails. The selected fallback is saved and used for subsequent GitHub requests until it is manually changed or deleted.
+> **GitHub access is optional:** When no mirror is configured, the client switches to the built-in mirror if direct access fails or is slower than 100 kbit/s. An existing mirror setting is always kept and skips this check.
 
 ## Features
 
@@ -18,9 +18,9 @@ English | [简体中文](README.zh-CN.md)
 - Manage multiple v2rayN subscriptions and standalone share links
 - Perform real proxy connection tests and optionally remove failed nodes
 - Run an HTTP/SOCKS mixed proxy on `127.0.0.1:1091`
-- Start and stop xray, inspect its status, and control the system proxy
+- Start and stop xray, then open a proxy-configured child shell
 - Check GitHub Releases and update the current executable online
-- Build Windows, Linux, and macOS release artifacts on multiple architectures
+- Build Windows, Linux, macOS, FreeBSD, and OpenBSD release artifacts on multiple architectures
 
 ## Installation
 
@@ -61,19 +61,9 @@ If GitHub is unreachable, open [scripts/install.ps1](scripts/install.ps1) in any
 .\install.ps1
 ```
 
-## Compatibility
+## Supported Links
 
-| Protocol          | Accepted link                         | Credentials             | Transport and security                                 |
-| ----------------- | ------------------------------------- | ----------------------- | ------------------------------------------------------ |
-| VMess             | `vmess://` Base64-encoded v2rayN JSON | UUID, alterId, security | TCP, WebSocket, gRPC, HTTP/2; none or TLS              |
-| VLESS             | `vless://` URI                        | UUID, encryption, flow  | TCP, WebSocket, gRPC, HTTP/2; none, TLS, or REALITY    |
-| Trojan            | `trojan://` URI                       | Password, optional flow | TCP, WebSocket, gRPC, HTTP/2; none, TLS, or REALITY    |
-| Shadowsocks       | `ss://` SIP002 URI                    | Method and password     | Xray-supported AEAD methods; plugins are not supported |
-| HTTP/HTTPS        | `http://` or `https://` URI           | Optional user/password  | HTTP upstream; HTTPS enables TLS to the upstream       |
-| SOCKS5            | `socks://` or `socks5://` URI         | Optional user/password  | Xray SOCKS5 outbound                                   |
-| Any Xray outbound | `xray://` Base64URL JSON              | Defined by JSON         | Native outbound object, passed to xray without loss    |
-
-Supports Base64-encoded or plain-text v2rayN subscriptions. Supported node protocols are listed in the table above.
+VMess, VLESS, Trojan, Shadowsocks, HTTP/HTTPS, SOCKS5, and native `xray://` outbound links are supported. Subscriptions can use Base64-encoded or plain-text v2rayN format.
 
 ## Shell Completion
 
@@ -84,6 +74,16 @@ x-cmd completion uninstall
 
 The current shell is detected automatically. Bash, Zsh, Fish, and PowerShell can also be selected explicitly, for example `x-cmd completion install powershell`. Reopen the terminal after installation.
 
+## GitHub Mirror Management
+
+```sh
+x-cmd github-mirror show
+x-cmd github-mirror set https://your-mirror.example
+x-cmd github-mirror delete
+```
+
+`set` keeps the chosen mirror without further speed checks. `delete` returns to automatic mode, which uses the built-in mirror when GitHub is unreachable or slower than 100 kbit/s.
+
 ## Core Management
 
 ```sh
@@ -93,6 +93,8 @@ x-cmd core install --version v26.3.27
 x-cmd core install --version v26.3.27 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
 ```
+
+Only stable xray-core releases are shown by `core releases`; draft and prerelease versions are excluded.
 
 ## Subscription and Node Management
 
@@ -112,7 +114,7 @@ x-cmd node use <NUMBER_OR_NODE_ID>
 x-cmd node delete <NUMBER_OR_NODE_ID>
 ```
 
-Subscription operations accept the displayed number or exact name. In the interactive subscription menu, Node Management opens the full node menu filtered to that subscription. Node selection and deletion accept the displayed number or an unambiguous ID prefix. Subscription updates replace only nodes owned by that subscription and preserve standalone nodes. Deleting the active node stops a running connection and selects the next available node. Switching nodes while connected restarts the connection with the new node.
+Subscriptions accept their displayed number or name. Nodes accept their number or ID. Switching the active node while connected restarts the connection automatically.
 
 ## Connection Testing
 
@@ -122,22 +124,35 @@ x-cmd node test --subscription <SUBSCRIPTION_NUMBER_OR_NAME> --timeout 10s --del
 x-cmd config set --test-url "https://example.com/generate_204"
 ```
 
-This is not a server port check. `x-cmd` starts a temporary xray process for each node and sends an HTTP request through its local SOCKS5 inbound, validating the complete proxy path.
+Use `--delete-invalid` to remove nodes that fail the connection test.
 
 ## Running the Proxy
 
 ```sh
+x-cmd node list
+x-cmd node use <NUMBER_OR_NODE_ID>
 x-cmd system start
 x-cmd system status
 x-cmd system stop
 x-cmd config set --listen-port 1091
+x-cmd config set --allow-lan=true
 
-x-cmd proxy enable
-x-cmd proxy status
-x-cmd proxy disable
+x-cmd shell
+x-cmd shell fish
+eval "$(x-cmd activate bash)"
 ```
 
-`system start` uses the active node and exposes an HTTP/SOCKS mixed inbound at `127.0.0.1:1091` by default. Restart after selecting another node. System proxy control updates Windows user Internet Settings, enabled macOS network services, or GNOME `gsettings` on Linux. On Linux it also writes proxy environment variables to the default shell startup file; reopen the shell after enabling or disabling the proxy. It is not a transparent proxy or TUN.
+For Fish or PowerShell 7, activate the current shell with:
+
+```fish
+x-cmd activate fish | source
+```
+
+```powershell
+Invoke-Expression (& x-cmd activate pwsh | Out-String)
+```
+
+The mixed proxy uses port 1091 by default and automatically switches to an available port when necessary. LAN access is optional and disabled by default; IPv4 and IPv6 are both enabled when supported. Start the connection before using `shell` or `activate`.
 
 ## Updating x-cmd
 
@@ -147,17 +162,7 @@ x-cmd update check
 x-cmd update install
 ```
 
-The updater downloads the current platform artifact from the latest `accloud-proj/x-cmd` Release and replaces the executable. Its directory must be writable. Windows retains the previous executable as `x-cmd.exe.old`.
-
-## GitHub Mirror Management
-
-```sh
-x-cmd github-mirror show
-x-cmd github-mirror set https://your-mirror.example
-x-cmd github-mirror delete
-```
-
-`set` selects a custom mirror, while `delete` restores automatic detection. If direct GitHub access then fails, the built-in mirror is selected and persisted again. `x-cmd config show` and `x-cmd config set --github-mirror URL` remain available.
+`update check` checks for a newer version; `update install` installs it.
 
 ## Uninstall
 
@@ -166,7 +171,23 @@ x-cmd uninstall
 x-cmd uninstall --yes
 ```
 
-Without `--yes`, the command asks for confirmation and defaults to cancellation. Uninstalling disables the system proxy, stops xray, removes installed shell completion, and deletes `x-cmd` itself, update backups, the configuration file, and runtime data. Stored subscriptions and nodes are permanently deleted as well. When using the interactive menu, select `u. Uninstall` and confirm.
+Without `--yes`, the command asks for confirmation. Uninstall removes the program, completion, configuration, subscriptions, and nodes.
+
+## Local Build
+
+Build Windows amd64 with PowerShell 7:
+
+```powershell
+pwsh ./scripts/build.ps1
+```
+
+Build Linux amd64 with Shell:
+
+```sh
+sh ./scripts/build.sh
+```
+
+Outputs are written to `dist/windows-amd64` and `dist/linux-amd64`. Both scripts run tests before building.
 
 ## License
 

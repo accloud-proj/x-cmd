@@ -9,7 +9,7 @@
 
 `x-cmd` 是一个 xray-core 命令行封装和管理工具。全部操作均支持适合脚本调用的命令参数，无参数运行时则进入交互式菜单。
 
-> **无需直连 GitHub：** 安装器和客户端会优先直连 GitHub，失败后自动切换内置镜像。自动选中的镜像会写入配置，后续 GitHub 请求会持续使用，直到手动修改或删除。
+> **无需直连 GitHub：** 未配置镜像时，如果 GitHub 直连失败或低于 100 kbit/s，客户端会自动使用内置镜像。只要已有镜像配置，就会保持原值并跳过检测。
 
 ## 功能
 
@@ -18,9 +18,9 @@
 - 管理多个 v2rayN 订阅和独立分享链接
 - 进行真实代理连接测试，并可自动删除失效节点
 - 在 `127.0.0.1:1091` 提供 HTTP/SOCKS mixed 代理
-- 启停 xray、查看状态以及控制系统全局代理
+- 启停 xray、查看状态，并进入已配置代理的子 Shell
 - 检查 GitHub Release 并在线更新当前程序
-- 构建 Windows、Linux 和 macOS 多架构发布包
+- 构建 Windows、Linux、macOS、FreeBSD 和 OpenBSD 多架构发布包
 
 ## 安装
 
@@ -61,19 +61,9 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 .\install.ps1
 ```
 
-## 兼容性
+## 支持的链接
 
-| 协议           | 接受的链接                           | 认证信息                | 传输与安全层                                       |
-| -------------- | ------------------------------------ | ----------------------- | -------------------------------------------------- |
-| VMess          | `vmess://` Base64 编码的 v2rayN JSON | UUID、alterId、security | TCP、WebSocket、gRPC、HTTP/2；none 或 TLS          |
-| VLESS          | `vless://` URI                       | UUID、encryption、flow  | TCP、WebSocket、gRPC、HTTP/2；none、TLS 或 REALITY |
-| Trojan         | `trojan://` URI                      | 密码、可选 flow         | TCP、WebSocket、gRPC、HTTP/2；none、TLS 或 REALITY |
-| Shadowsocks    | `ss://` SIP002 URI                   | 加密方法和密码          | xray 支持的 AEAD 方法；不支持插件                  |
-| HTTP/HTTPS     | `http://` 或 `https://` URI          | 可选用户名/密码         | HTTP 上游；HTTPS 对上游启用 TLS                    |
-| SOCKS5         | `socks://` 或 `socks5://` URI        | 可选用户名/密码         | Xray SOCKS5 出站                                   |
-| 任意 Xray 出站 | `xray://` Base64URL JSON             | 由 JSON 定义            | 原生出站对象，无损传递给 xray                      |
-
-支持 Base64 编码或纯文本的 v2rayN 订阅，节点协议以表格所列类型为准。
+支持 VMess、VLESS、Trojan、Shadowsocks、HTTP/HTTPS、SOCKS5 和原生 `xray://` 出站链接。订阅支持 Base64 编码或纯文本 v2rayN 格式。
 
 ## 命令行自动补全
 
@@ -84,6 +74,16 @@ x-cmd completion uninstall
 
 默认自动识别当前 Shell，也可以明确指定 Bash、Zsh、Fish 或 PowerShell，例如 `x-cmd completion install powershell`。安装后重新打开终端即可生效。
 
+## GitHub 镜像管理
+
+```sh
+x-cmd github-mirror show
+x-cmd github-mirror set https://your-mirror.example
+x-cmd github-mirror delete
+```
+
+`set` 设置镜像后不会再测速或自动修改。`delete` 恢复自动模式，GitHub 无法访问或低于 100 kbit/s 时会使用内置镜像。
+
 ## 内核管理
 
 ```sh
@@ -93,6 +93,8 @@ x-cmd core install --version v26.3.27
 x-cmd core install --version v26.3.27 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
 ```
+
+`core releases` 仅显示 xray-core 稳定版本，草稿和预览版本会被排除。
 
 ## 订阅与节点管理
 
@@ -112,7 +114,7 @@ x-cmd node use <序号或节点ID>
 x-cmd node delete <序号或节点ID>
 ```
 
-订阅操作可使用列表序号或完整名称。交互式订阅菜单中的“节点管理”会打开完整节点菜单，但只显示和操作当前订阅的节点。选择和删除节点时可使用列表序号或能够唯一匹配的 ID 前缀。更新订阅只替换该订阅所属节点，并保留独立导入节点。删除活动节点会停止正在运行的连接并自动选择下一个可用节点；连接运行时切换节点会使用新节点自动重启连接。
+订阅可使用列表序号或名称，节点可使用序号或 ID。连接运行时切换活动节点会自动重启连接。
 
 ## 连接测试
 
@@ -122,22 +124,35 @@ x-cmd node test --subscription <订阅序号或名称> --timeout 10s --delete-in
 x-cmd config set --test-url "https://example.com/generate_204"
 ```
 
-这不是服务器端口探测。`x-cmd` 会为每个节点启动临时 xray 进程，并通过其本地 SOCKS5 入站发送 HTTP 请求，以验证完整代理链路。
+使用 `--delete-invalid` 可自动删除测试失败的节点。
 
 ## 运行代理
 
 ```sh
+x-cmd node list
+x-cmd node use <节点序号或ID>
 x-cmd system start
 x-cmd system status
 x-cmd system stop
 x-cmd config set --listen-port 1091
+x-cmd config set --allow-lan=true
 
-x-cmd proxy enable
-x-cmd proxy status
-x-cmd proxy disable
+x-cmd shell
+x-cmd shell fish
+eval "$(x-cmd activate bash)"
 ```
 
-`system start` 使用活动节点，默认在 `127.0.0.1:1091` 提供 HTTP/SOCKS mixed 入站。选择其他节点后需要重启连接。系统代理功能会修改 Windows 当前用户 Internet Settings、macOS 已启用网络服务，或 Linux GNOME `gsettings`。在 Linux 上还会将代理环境变量写入默认 shell 的启动配置，重新打开 shell 后生效；关闭代理后同样需要重新打开 shell。该功能不是透明代理或 TUN。
+Fish 或 PowerShell 7 可按以下方式激活当前 Shell：
+
+```fish
+x-cmd activate fish | source
+```
+
+```powershell
+Invoke-Expression (& x-cmd activate pwsh | Out-String)
+```
+
+默认监听 1091 mixed 端口，被占用时会自动改用可用端口。支持开启局域网监听（默认关闭），环境支持时会同时启用 IPv4 和 IPv6。使用 `shell` 或 `activate` 前必须先启动连接。
 
 ## 更新 x-cmd
 
@@ -147,17 +162,7 @@ x-cmd update check
 x-cmd update install
 ```
 
-更新器从 `accloud-proj/x-cmd` 最新 Release 下载当前系统和架构对应的资产，并替换当前程序。安装目录必须可写。Windows 会将旧程序保留为 `x-cmd.exe.old`。
-
-## GitHub 镜像管理
-
-```sh
-x-cmd github-mirror show
-x-cmd github-mirror set https://your-mirror.example
-x-cmd github-mirror delete
-```
-
-`set` 会切换到指定镜像，`delete` 会恢复自动检测；此后若 GitHub 直连失败，内置镜像会再次被选中并持久保存。也可以继续使用 `x-cmd config show` 和 `x-cmd config set --github-mirror URL`。
+`update check` 检查新版本，`update install` 安装新版本。
 
 ## 卸载
 
@@ -166,7 +171,23 @@ x-cmd uninstall
 x-cmd uninstall --yes
 ```
 
-不带 `--yes` 时会询问是否确认，默认不删除。卸载时会关闭系统代理、停止 xray、自动卸载命令行补全，并删除 `x-cmd` 自身、更新备份、配置文件和运行数据。配置中的订阅与节点也会一并永久删除。无参数运行交互菜单时，也可以选择 `u. 卸载` 并确认。
+不带 `--yes` 时会请求确认。卸载会删除程序、命令补全、配置、订阅和节点。
+
+## 本地构建
+
+使用 PowerShell 7 构建 Windows amd64：
+
+```powershell
+pwsh ./scripts/build.ps1
+```
+
+使用 Shell 构建 Linux amd64：
+
+```sh
+sh ./scripts/build.sh
+```
+
+构建结果分别位于 `dist/windows-amd64` 和 `dist/linux-amd64`。两个脚本都会先运行测试。
 
 ## 许可证
 
