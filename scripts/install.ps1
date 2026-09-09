@@ -72,7 +72,7 @@ try {
     }
     Write-Host "Installed executable: $installedPath"
     if (($env:Path -split ';') -notcontains $InstallDir) {
-        Write-Host "Add this directory to PATH: $InstallDir"
+        Write-Host "Please Add this directory to PATH: $InstallDir"
     }
 }
 finally {

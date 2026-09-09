@@ -128,4 +128,4 @@ if [ -n "$GITHUB_MIRROR" ]; then
   "$INSTALL_DIR/x-cmd" config set --github-mirror "$GITHUB_MIRROR"
 fi
 echo "Installed executable: ${INSTALL_DIR}/x-cmd"
-case ":$PATH:" in *":$INSTALL_DIR:"*) ;; *) echo "Add this directory to PATH: ${INSTALL_DIR}" ;; esac
+case ":$PATH:" in *":$INSTALL_DIR:"*) ;; *) echo "Please Add this directory to PATH: ${INSTALL_DIR}" ;; esac
