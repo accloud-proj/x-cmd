@@ -94,7 +94,7 @@ x-cmd core install --version v26.3.27 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
 ```
 
-`core releases` 仅显示 xray-core 稳定版本，草稿和预览版本会被排除。
+`core releases` 使用轻量标签接口列出最新的 xray-core 稳定版本。
 
 ## 订阅与节点管理
 

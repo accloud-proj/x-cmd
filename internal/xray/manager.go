@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -19,61 +18,41 @@ import (
 )
 
 type Release struct {
-	TagName     string    `json:"tag_name"`
-	PublishedAt time.Time `json:"published_at"`
-	Draft       bool      `json:"draft"`
-	Prerelease  bool      `json:"prerelease"`
+	TagName string
 }
 
-type releaseFeed struct {
-	Entries []struct {
-		Title   string    `xml:"title"`
-		Updated time.Time `xml:"updated"`
-	} `xml:"entry"`
-}
-
-func RecentReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
+func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
-	if strings.HasSuffix(strings.Split(endpoint, "?")[0], ".atom") {
-		request.Header.Set("Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8")
-	} else {
-		request.Header.Set("Accept", "application/vnd.github+json")
-	}
+	request.Header.Set("Accept", "application/vnd.github+json")
 	request.Header.Set("User-Agent", "x-cmd")
-	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	response, err := (&http.Client{Timeout: 8 * time.Second}).Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Xray Release 失败: %w", err)
+		return nil, fmt.Errorf("获取 Xray 稳定版本失败: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("获取 Xray Release 失败: HTTP %s", response.Status)
+		return nil, fmt.Errorf("获取 Xray 稳定版本失败: HTTP %s", response.Status)
 	}
-	var releases []Release
-	if strings.Contains(response.Header.Get("Content-Type"), "xml") || strings.HasSuffix(strings.Split(endpoint, "?")[0], ".atom") {
-		var feed releaseFeed
-		if err := xml.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&feed); err != nil {
-			return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
-		}
-		for _, entry := range feed.Entries {
-			releases = append(releases, Release{TagName: strings.TrimSpace(entry.Title), PublishedAt: entry.Updated})
-		}
-	} else if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&releases); err != nil {
-		return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
+	var tags []struct {
+		Name string `json:"name"`
 	}
-	result := make([]Release, 0, limit)
-	for _, release := range releases {
-		if release.Draft || release.Prerelease || !stableVersionTag(release.TagName) {
+	if err := json.NewDecoder(io.LimitReader(response.Body, 256<<10)).Decode(&tags); err != nil {
+		return nil, fmt.Errorf("解析 Xray 稳定版本失败: %w", err)
+	}
+	releases := make([]Release, 0, limit)
+	for _, tag := range tags {
+		if !stableVersionTag(tag.Name) {
 			continue
 		}
-		result = append(result, release)
-		if len(result) == limit {
+		releases = append(releases, Release{TagName: strings.TrimSpace(tag.Name)})
+		if len(releases) == limit {
 			break
 		}
 	}
-	return result, nil
+	return releases, nil
 }
 
 func stableVersionTag(tag string) bool {
@@ -93,7 +72,7 @@ func Version(ctx context.Context, binary string) (string, error) {
 	return line, nil
 }
 
-func Install(ctx context.Context, version, baseURL, destination string) (string, error) {
+func Install(ctx context.Context, version, baseURL, destination string, progress io.Writer) (string, error) {
 	if version == "" {
 		return "", fmt.Errorf("必须指定版本，例如 v26.3.27")
 	}
@@ -124,7 +103,7 @@ func Install(ctx context.Context, version, baseURL, destination string) (string,
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
-	if _, err := io.Copy(temporary, response.Body); err != nil {
+	if err := copyWithProgress(temporary, response.Body, response.ContentLength, progress); err != nil {
 		temporary.Close()
 		return "", err
 	}
@@ -139,6 +118,57 @@ func Install(ctx context.Context, version, baseURL, destination string) (string,
 		return "", err
 	}
 	return binary, nil
+}
+
+func copyWithProgress(destination io.Writer, source io.Reader, total int64, output io.Writer) error {
+	var downloaded int64
+	buffer := make([]byte, 64<<10)
+	lastPercent := -1
+	for {
+		count, readErr := source.Read(buffer)
+		if count > 0 {
+			if _, err := destination.Write(buffer[:count]); err != nil {
+				return err
+			}
+			downloaded += int64(count)
+			if output != nil {
+				if total > 0 {
+					percent := int(downloaded * 100 / total)
+					if percent != lastPercent {
+						fmt.Fprintf(output, "\r[下载] %3d%%  %s / %s", percent, formatBytes(downloaded), formatBytes(total))
+						lastPercent = percent
+					}
+				} else {
+					fmt.Fprintf(output, "\r[下载] %s", formatBytes(downloaded))
+				}
+			}
+		}
+		if readErr == io.EOF {
+			if output != nil {
+				fmt.Fprintln(output)
+			}
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+func formatBytes(size int64) string {
+	const unit = 1024
+	if size < unit {
+		return fmt.Sprintf("%d B", size)
+	}
+	value := float64(size)
+	units := []string{"KB", "MB", "GB"}
+	for _, label := range units {
+		value /= unit
+		if value < unit || label == "GB" {
+			return fmt.Sprintf("%.1f %s", value, label)
+		}
+	}
+	return ""
 }
 
 func defaultInstallDir() string {

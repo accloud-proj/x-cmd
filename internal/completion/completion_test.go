@@ -17,6 +17,7 @@ func TestCandidates(t *testing.T) {
 		{[]string{"node", "--current="}, "add\ndelete\nlist\ntest\nuse"},
 		{[]string{"uninstall", "-"}, "--yes"},
 		{[]string{"completion", "install", "p"}, "powershell"},
+		{[]string{"core", "r"}, "releases"},
 	}
 	for _, test := range tests {
 		if got := strings.Join(Candidates(test.args), "\n"); got != test.want {

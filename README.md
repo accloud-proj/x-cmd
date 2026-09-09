@@ -94,7 +94,7 @@ x-cmd core install --version v26.3.27 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
 ```
 
-Only stable xray-core releases are shown by `core releases`; draft and prerelease versions are excluded.
+`core releases` lists the latest stable xray-core versions using the lightweight tags API.
 
 ## Subscription and Node Management
 

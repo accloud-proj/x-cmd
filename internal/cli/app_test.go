@@ -289,6 +289,46 @@ func TestMainMenuIsFullScreenAndContainsProxyShellActions(t *testing.T) {
 	}
 }
 
+func TestMainMenuOpensMaintenanceSubmenu(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{
+		input:  bufio.NewReader(strings.NewReader("u\n0\n0\n")),
+		output: &output,
+	}
+	if err := app.interactive(); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"u. 更新/卸载", "1. 检测更新  2. 更新  3. 卸载  0. 返回"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf("maintenance menu missing %q: %q", expected, output.String())
+		}
+	}
+}
+
+func TestInteractiveMaintenanceUninstallsAndExits(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", home)
+	removed := false
+	app := &App{
+		store:  state.New(filepath.Join(t.TempDir(), "config.json")),
+		input:  bufio.NewReader(strings.NewReader("3\ny\n")),
+		output: io.Discard,
+		uninstall: func(string, string) error {
+			removed = true
+			return nil
+		},
+	}
+	uninstalled, err := app.interactiveMaintenance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !uninstalled || !removed {
+		t.Fatalf("uninstalled = %t, removed = %t", uninstalled, removed)
+	}
+}
+
 func TestInteractiveMessagesAreIndented(t *testing.T) {
 	var output bytes.Buffer
 	app := &App{
@@ -653,23 +693,48 @@ func TestSlowGitHubDirectConnectionPrefersBuiltInMirror(t *testing.T) {
 }
 
 func TestConfiguredGitHubMirrorSkipsSpeedTest(t *testing.T) {
-	called := false
-	app := &App{
-		output: io.Discard,
-		githubProbe: func(context.Context, string, int64) (bool, float64, error) {
-			called = true
-			return false, 0, nil
-		},
+	for _, mirror := range []string{"https://mirror.example", githuburl.DefaultMirror} {
+		called := false
+		app := &App{
+			output: io.Discard,
+			githubProbe: func(context.Context, string, int64) (bool, float64, error) {
+				called = true
+				return false, 0, nil
+			},
+		}
+		candidates, err := app.githubCandidates(context.Background(), mirror)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if called {
+			t.Fatalf("configured mirror %q must skip the GitHub speed test", mirror)
+		}
+		if len(candidates) != 1 || candidates[0].Mirror != mirror {
+			t.Fatalf("configured mirror %q changed: %#v", mirror, candidates)
+		}
 	}
-	candidates, err := app.githubCandidates(context.Background(), "https://mirror.example")
+}
+
+func TestAutomaticallySelectedMirrorBecomesFixedConfiguration(t *testing.T) {
+	data := state.Data{}
+	app := &App{output: io.Discard}
+	if !app.persistSelectedMirror(&data, githuburl.Rewriter{Mirror: githuburl.DefaultMirror}) {
+		t.Fatal("automatically selected mirror was not persisted")
+	}
+	called := false
+	app.githubProbe = func(context.Context, string, int64) (bool, float64, error) {
+		called = true
+		return true, 0, nil
+	}
+	candidates, err := app.githubCandidates(context.Background(), data.Settings.GitHubMirror)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if called {
-		t.Fatal("configured mirror must skip the GitHub speed test")
+		t.Fatal("persisted automatic mirror must skip subsequent detection")
 	}
-	if len(candidates) != 1 || candidates[0].Mirror != "https://mirror.example" {
-		t.Fatalf("configured mirror changed: %#v", candidates)
+	if len(candidates) != 1 || candidates[0].Mirror != githuburl.DefaultMirror {
+		t.Fatalf("unexpected candidates: %#v", candidates)
 	}
 }
 

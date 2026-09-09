@@ -313,7 +313,7 @@ func (a *App) core(args []string) error {
 			a.printGitHubCandidateSwitch(rewriter)
 		}
 		fmt.Fprintf(a.output, "[信息] 正在下载 Xray %s...\n", *version)
-		binary, err = xray.Install(context.Background(), *version, downloadURL, *directory)
+		binary, err = xray.Install(context.Background(), *version, downloadURL, *directory, a.output)
 		if err == nil {
 			selected = rewriter
 			break
@@ -337,9 +337,9 @@ func (a *App) xrayReleases() error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	rewriters, err := a.githubCandidates(ctx, data.Settings.GitHubMirror)
+	rewriters, err := githuburl.Candidates(data.Settings.GitHubMirror)
 	if err != nil {
 		return err
 	}
@@ -349,21 +349,13 @@ func (a *App) xrayReleases() error {
 		if index > 0 {
 			a.printGitHubCandidateSwitch(rewriter)
 		}
-		for _, source := range []string{
-			"https://api.github.com/repos/XTLS/Xray-core/releases?per_page=20",
-			"https://github.com/XTLS/Xray-core/releases.atom",
-		} {
-			endpoint, rewriteErr := rewriter.Rewrite(source)
-			if rewriteErr != nil {
-				return rewriteErr
-			}
-			releases, err = xray.RecentReleases(ctx, endpoint, 5)
-			if err == nil {
-				selected = rewriter
-				break
-			}
+		endpoint, rewriteErr := rewriter.Rewrite("https://api.github.com/repos/XTLS/Xray-core/tags?per_page=20")
+		if rewriteErr != nil {
+			return rewriteErr
 		}
-		if err == nil {
+		releases, err = xray.StableReleases(ctx, endpoint, 5)
+		if err == nil && len(releases) > 0 {
+			selected = rewriter
 			break
 		}
 	}
@@ -371,16 +363,16 @@ func (a *App) xrayReleases() error {
 		return err
 	}
 	if len(releases) == 0 {
-		return fmt.Errorf("未获取到可用的 Xray Release")
+		return fmt.Errorf("未获取到可用的 Xray 稳定版本")
 	}
 	if a.persistSelectedMirror(&data, selected) {
 		if err := a.store.Save(data); err != nil {
 			return err
 		}
 	}
-	fmt.Fprintln(a.output, "\n[信息] 最近的 Xray Release:")
+	fmt.Fprintln(a.output, "\n[信息] 最新的 Xray 稳定版本:")
 	for index, release := range releases {
-		fmt.Fprintf(a.output, "%d. %-16s %s\n", index+1, release.TagName, release.PublishedAt.Local().Format("2006-01-02"))
+		fmt.Fprintf(a.output, "%d. %s\n", index+1, release.TagName)
 	}
 	return nil
 }
@@ -1077,7 +1069,7 @@ func (a *App) interactive() error {
 	defer func() { a.output = originalOutput }()
 	for {
 		a.clearScreen()
-		a.printMenu(fmt.Sprintf("X-CMD  Xray 管理工具\n当前版本: %s\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 修改配置\n5. 连接管理\n6. 进入 Shell\n7. 查看临时激活命令\nu. 卸载\n0. 退出", version.Version))
+		a.printMenu(fmt.Sprintf("X-CMD  Xray 管理工具\n当前版本: %s\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 修改配置\n5. 连接管理\n6. 进入 Shell\n7. 查看临时激活命令\nu. 更新/卸载\n0. 退出", version.Version))
 		choice := a.prompt("请选择")
 		if choice == "" {
 			continue
@@ -1105,9 +1097,12 @@ func (a *App) interactive() error {
 		case "7":
 			err = a.interactiveProxyAction(a.activate)
 		case "u", "U":
-			if strings.EqualFold(a.prompt("卸载会删除程序和全部配置，确认? [y/N]"), "y") {
-				return a.uninstallApp([]string{"--yes"})
+			var uninstalled bool
+			uninstalled, err = a.interactiveMaintenance()
+			if uninstalled {
+				return nil
 			}
+			returnedFromSubmenu = true
 		case "0":
 			return nil
 		default:
@@ -1120,6 +1115,36 @@ func (a *App) interactive() error {
 			continue
 		}
 		a.waitForMenu()
+	}
+}
+
+func (a *App) interactiveMaintenance() (bool, error) {
+	for {
+		a.clearScreen()
+		a.printMenu("1. 检测更新  2. 更新  3. 卸载  0. 返回")
+		choice := a.prompt("操作")
+		switch choice {
+		case "":
+			continue
+		case "0":
+			return false, nil
+		case "1":
+			a.finishSubmenuAction(a.update([]string{"check"}))
+		case "2":
+			a.finishSubmenuAction(a.update([]string{"install"}))
+		case "3":
+			if !strings.EqualFold(a.prompt("卸载会删除程序和全部配置，确认? [y/N]"), "y") {
+				fmt.Fprintln(a.output, "[提示] 已取消卸载")
+				a.waitForMenu()
+				continue
+			}
+			if err := a.uninstallApp([]string{"--yes"}); err != nil {
+				return false, err
+			}
+			return true, nil
+		default:
+			a.invalidMenuChoice()
+		}
 	}
 }
 
