@@ -27,6 +27,7 @@ else {
     if (-not $Version.StartsWith("v")) { $Version = "v$Version" }
     $releasePath = "download/$Version"
 }
+$checksumFile = [System.IO.Path]::GetFileNameWithoutExtension($asset) + "_sum.txt"
 
 function Get-GitHubUrl([string]$FileName) {
     $target = "https://github.com/$repository/releases/$releasePath/$FileName"
@@ -50,12 +51,12 @@ $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ("x-cmd-" + [g
 New-Item -ItemType Directory -Path $temporaryDirectory | Out-Null
 try {
     $archive = Join-Path $temporaryDirectory $asset
-    $checksums = Join-Path $temporaryDirectory "checksums.txt"
+    $checksum = Join-Path $temporaryDirectory $checksumFile
     Write-Host "Downloading $asset..."
     Invoke-GitHubDownload $asset $archive
-    Invoke-GitHubDownload "checksums.txt" $checksums
+    Invoke-GitHubDownload $checksumFile $checksum
 
-    $checksumLine = Get-Content $checksums | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
+    $checksumLine = Get-Content $checksum | Where-Object { $_ -match "\s\*?$([regex]::Escape($asset))$" } | Select-Object -First 1
     if (-not $checksumLine) { throw "No checksum found for $asset" }
     $expected = ($checksumLine -split "\s+")[0].ToLowerInvariant()
     $actual = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()

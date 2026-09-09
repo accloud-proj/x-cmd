@@ -53,6 +53,8 @@ case "$(uname -m)" in
 esac
 
 ASSET="x-cmd_${OS}_${ARCH}.tar.gz"
+CHECKSUM="${ASSET%.tar.gz}_sum.txt"
+
 if [ "$VERSION" = "latest" ]; then
   RELEASE_PATH="latest/download"
 else
@@ -102,9 +104,9 @@ download_github() {
 
 echo "Downloading ${ASSET}..."
 download_github "$ASSET" "$TMP_DIR/$ASSET"
-download_github checksums.txt "$TMP_DIR/checksums.txt"
+download_github "$CHECKSUM" "$TMP_DIR/$CHECKSUM"
 
-EXPECTED="$(awk -v asset="$ASSET" '$2 == asset || $2 == "*" asset { print $1; exit }' "$TMP_DIR/checksums.txt")"
+EXPECTED="$(awk -v asset="$ASSET" '$2 == asset || $2 == "*" asset { print $1; exit }' "$TMP_DIR/$CHECKSUM")"
 if [ -z "$EXPECTED" ]; then
   echo "No checksum found for ${ASSET}" >&2
   exit 1
