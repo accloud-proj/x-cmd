@@ -1,6 +1,18 @@
 package xray
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
+
+func TestRunningChecksProcessExistence(t *testing.T) {
+	if Running(0) {
+		t.Fatal("zero PID must not be running")
+	}
+	if !Running(os.Getpid()) {
+		t.Fatal("current process should be running")
+	}
+}
 
 func TestRuntimeConfigUsesMixedInbound(t *testing.T) {
 	config := RuntimeConfig(map[string]any{"protocol": "freedom"}, 1091, false)

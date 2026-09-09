@@ -129,8 +129,16 @@ func TestSystemCommandGroupsServiceActions(t *testing.T) {
 
 func TestActivateOutputsShellProxyConfiguration(t *testing.T) {
 	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data.Runtime.PID = 42
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
 	var output bytes.Buffer
-	app := &App{store: store, output: &output, portOpen: func(int) bool { return true }}
+	app := &App{store: store, output: &output, portOpen: func(int) bool { return true }, processRunning: func(int) bool { return true }}
 	if err := app.Run([]string{"activate", "bash"}); err != nil {
 		t.Fatal(err)
 	}
@@ -162,11 +170,19 @@ func TestActivateAndShellRequireRunningProxy(t *testing.T) {
 
 func TestShellInheritsEnvironmentAndAddsProxy(t *testing.T) {
 	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data.Runtime.PID = 42
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("X_CMD_INHERITED", "yes")
 	var executable string
 	var args []string
 	var environment []string
-	app := &App{store: store, output: io.Discard, portOpen: func(int) bool { return true }}
+	app := &App{store: store, output: io.Discard, portOpen: func(int) bool { return true }, processRunning: func(int) bool { return true }}
 	app.runShell = func(name string, commandArgs, env []string) error {
 		executable, args, environment = name, commandArgs, env
 		return nil
@@ -182,6 +198,38 @@ func TestShellInheritsEnvironmentAndAddsProxy(t *testing.T) {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("shell environment missing %q", expected)
 		}
+	}
+}
+
+func TestStatusRejectsOpenPortWhenRecordedProcessStopped(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data.Runtime.PID = 42
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	app := &App{
+		store:          store,
+		output:         &output,
+		portOpen:       func(int) bool { return true },
+		processRunning: func(int) bool { return false },
+	}
+	if err := app.Run([]string{"system", "status"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "状态: stopped") {
+		t.Fatalf("unexpected status: %q", output.String())
+	}
+	saved, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Runtime.PID != 0 {
+		t.Fatalf("stale runtime PID was not cleared: %d", saved.Runtime.PID)
 	}
 }
 

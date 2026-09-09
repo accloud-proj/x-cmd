@@ -25,17 +25,18 @@ import (
 )
 
 type App struct {
-	store       *state.Store
-	input       *bufio.Reader
-	output      io.Writer
-	banner      string
-	uninstall   func(string, string) error
-	serviceFn   func(string) error
-	runShell    func(string, []string, []string) error
-	portOpen    func(int) bool
-	waitKey     func() error
-	githubProbe func(context.Context, string, int64) (bool, float64, error)
-	detectShell func() (string, error)
+	store          *state.Store
+	input          *bufio.Reader
+	output         io.Writer
+	banner         string
+	uninstall      func(string, string) error
+	serviceFn      func(string) error
+	runShell       func(string, []string, []string) error
+	portOpen       func(int) bool
+	processRunning func(int) bool
+	waitKey        func() error
+	githubProbe    func(context.Context, string, int64) (bool, float64, error)
+	detectShell    func() (string, error)
 }
 
 type indentWriter struct {
@@ -127,7 +128,7 @@ func (a *App) activate(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !a.isPortOpen(data.Settings.ListenPort) {
+	if !a.connectionRunning(data) {
 		return fmt.Errorf("连接尚未启动，请先运行 x-cmd system start")
 	}
 	script, err := shellenv.Activation(shell, data.Settings.ListenPort)
@@ -150,7 +151,7 @@ func (a *App) shell(args []string) error {
 	if err != nil {
 		return err
 	}
-	if !a.isPortOpen(data.Settings.ListenPort) {
+	if !a.connectionRunning(data) {
 		return fmt.Errorf("连接尚未启动，请先运行 x-cmd system start")
 	}
 	name, commandArgs, err := shellenv.Command(shell)
@@ -169,6 +170,17 @@ func (a *App) isPortOpen(port int) bool {
 		return a.portOpen(port)
 	}
 	return xray.PortOpen(port)
+}
+
+func (a *App) isProcessRunning(pid int) bool {
+	if a.processRunning != nil {
+		return a.processRunning(pid)
+	}
+	return xray.Running(pid)
+}
+
+func (a *App) connectionRunning(data state.Data) bool {
+	return a.isProcessRunning(data.Runtime.PID) && a.isPortOpen(data.Settings.ListenPort)
 }
 
 func (a *App) system(args []string) error {
@@ -877,7 +889,7 @@ func (a *App) service(action string) error {
 	}
 	switch action {
 	case "start":
-		if a.isPortOpen(data.Settings.ListenPort) {
+		if a.connectionRunning(data) {
 			return fmt.Errorf("连接已启动，mixed 代理监听于 127.0.0.1:%d", data.Settings.ListenPort)
 		}
 		listenPort, err := xray.AvailablePort(data.Settings.ListenPort, data.Settings.AllowLAN)
@@ -912,7 +924,7 @@ func (a *App) service(action string) error {
 		fmt.Fprintf(a.output, "[成功] 连接已启动: %s，mixed 代理 %s:%d，PID %d\n", data.Nodes[index].Name, listenHost(data.Settings.AllowLAN), listenPort, pid)
 		return nil
 	case "stop":
-		if !a.isPortOpen(data.Settings.ListenPort) {
+		if !a.isProcessRunning(data.Runtime.PID) {
 			data.Runtime = state.Runtime{}
 			if err := a.store.Save(data); err != nil {
 				return err
@@ -930,7 +942,13 @@ func (a *App) service(action string) error {
 		fmt.Fprintln(a.output, "[成功] 连接已停止")
 		return nil
 	case "status":
-		if !a.isPortOpen(data.Settings.ListenPort) {
+		if !a.connectionRunning(data) {
+			if data.Runtime.PID > 0 {
+				data.Runtime = state.Runtime{}
+				if err := a.store.Save(data); err != nil {
+					return err
+				}
+			}
 			fmt.Fprintln(a.output, "状态: stopped")
 			return nil
 		}

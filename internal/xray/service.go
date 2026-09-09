@@ -105,6 +105,13 @@ func Stop(pid int) error {
 	return nil
 }
 
+func Running(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return processRunning(pid)
+}
+
 func PortOpen(port int) bool {
 	connection, err := net.DialTimeout("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), 200*time.Millisecond)
 	if err != nil {
