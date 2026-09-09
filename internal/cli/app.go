@@ -1011,7 +1011,7 @@ func (a *App) update(args []string) error {
 		if index > 0 {
 			a.printGitHubCandidateSwitch(rewriter)
 		}
-		err = updater.Install(ctx, release, rewriter)
+		err = updater.Install(ctx, release, rewriter, a.output)
 		if err == nil {
 			break
 		}
@@ -1121,7 +1121,7 @@ func (a *App) interactive() error {
 func (a *App) interactiveMaintenance() (bool, error) {
 	for {
 		a.clearScreen()
-		a.printMenu("1. 检测更新  2. 更新  3. 卸载  0. 返回")
+		a.printMenu("1. 检测更新\n2. 更新\n3. 卸载\n0. 返回")
 		choice := a.prompt("操作")
 		switch choice {
 		case "":
@@ -1160,7 +1160,7 @@ func (a *App) waitForMenu() {
 func (a *App) interactiveSystem() error {
 	for {
 		a.clearScreen()
-		a.printMenu("1. 启动连接  2. 查看状态  3. 停止连接  4. 测试全部节点  0. 返回")
+		a.printMenu("1. 启动连接\n2. 查看状态\n3. 停止连接\n4. 测试全部节点\n0. 返回")
 		choice := a.prompt("操作")
 		if choice == "" {
 			continue
@@ -1184,7 +1184,7 @@ func (a *App) interactiveSystem() error {
 func (a *App) interactiveCore() error {
 	for {
 		a.clearScreen()
-		a.printMenu("1. 查看当前内核信息  2. 查看最近 Release  3. 安装/切换内核  0. 返回")
+		a.printMenu("1. 查看当前内核信息\n2. 查看最近 Release\n3. 安装/切换内核\n0. 返回")
 		choice := a.prompt("操作")
 		if choice == "" {
 			continue
@@ -1214,7 +1214,7 @@ func (a *App) interactiveSubscriptions() error {
 		if err := a.listSubscriptions(); err != nil {
 			return err
 		}
-		a.printMenu("a. 添加  e. 编辑  d. 删除  u. 更新  n. 节点管理  0. 返回")
+		a.printMenu("a. 添加\ne. 编辑\nd. 删除\nu. 更新\nn. 节点管理\n0. 返回")
 		choice := strings.ToLower(a.prompt("操作"))
 		if choice == "" {
 			continue
@@ -1275,7 +1275,7 @@ func (a *App) interactiveNodes(subscriptionID string) error {
 		if err := a.printNodes(data, subscriptionID); err != nil {
 			return err
 		}
-		a.printMenu("s. 选择  a. 添加  d. 删除  t. 测试  0. 返回")
+		a.printMenu("s. 选择\na. 添加\nd. 删除\nt. 测试\n0. 返回")
 		choice := strings.ToLower(a.prompt("操作"))
 		if choice == "" {
 			continue
@@ -1316,7 +1316,7 @@ func (a *App) interactiveConfig() error {
 		if err := a.config([]string{"show"}); err != nil {
 			return err
 		}
-		a.printMenu("1. 下载地址  2. Xray 路径  3. 测试地址  4. GitHub 镜像  5. 本地监听端口  6. 允许局域网连接  0. 返回")
+		a.printMenu("1. 下载地址\n2. Xray 路径\n3. 测试地址\n4. GitHub 镜像\n5. 本地监听端口\n6. 允许局域网连接\n0. 返回")
 		choice := a.prompt("配置项")
 		if choice == "" {
 			continue

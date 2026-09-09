@@ -1,6 +1,7 @@
 package updater
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,21 @@ import (
 
 	"github.com/accloud-proj/x-cmd/internal/githuburl"
 )
+
+func TestCopyWithProgress(t *testing.T) {
+	content := bytes.Repeat([]byte("x"), 128<<10)
+	var destination bytes.Buffer
+	var progress bytes.Buffer
+	if err := copyWithProgress(&destination, bytes.NewReader(content), int64(len(content)), &progress); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(destination.Bytes(), content) {
+		t.Fatal("downloaded content differs")
+	}
+	if !strings.Contains(progress.String(), "100%") {
+		t.Fatalf("progress = %q", progress.String())
+	}
+}
 
 func TestIsNewer(t *testing.T) {
 	tests := []struct {

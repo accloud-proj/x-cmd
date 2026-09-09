@@ -119,7 +119,7 @@ func IsNewer(latest, current string) bool {
 	return false
 }
 
-func Install(ctx context.Context, release Release, rewriter githuburl.Rewriter) error {
+func Install(ctx context.Context, release Release, rewriter githuburl.Rewriter, progress io.Writer) error {
 	assetName := platformAssetName()
 	var downloadURL string
 	for _, asset := range release.Assets {
@@ -162,7 +162,7 @@ func Install(ctx context.Context, release Release, rewriter githuburl.Rewriter) 
 	}
 	archivePath := archive.Name()
 	defer os.Remove(archivePath)
-	if _, err := io.Copy(archive, io.LimitReader(response.Body, 200<<20)); err != nil {
+	if err := copyWithProgress(archive, io.LimitReader(response.Body, 200<<20), response.ContentLength, progress); err != nil {
 		archive.Close()
 		return err
 	}
@@ -196,6 +196,54 @@ func Install(ctx context.Context, release Release, rewriter githuburl.Rewriter) 
 		return fmt.Errorf("替换程序失败，已回滚: %w", err)
 	}
 	return nil
+}
+
+func copyWithProgress(destination io.Writer, source io.Reader, total int64, output io.Writer) error {
+	var downloaded int64
+	buffer := make([]byte, 64<<10)
+	lastPercent := -1
+	for {
+		count, readErr := source.Read(buffer)
+		if count > 0 {
+			if _, err := destination.Write(buffer[:count]); err != nil {
+				return err
+			}
+			downloaded += int64(count)
+			if output != nil {
+				if total > 0 {
+					percent := int(downloaded * 100 / total)
+					if percent != lastPercent {
+						fmt.Fprintf(output, "\r[下载] %3d%%  %s / %s", percent, formatBytes(downloaded), formatBytes(total))
+						lastPercent = percent
+					}
+				} else {
+					fmt.Fprintf(output, "\r[下载] %s", formatBytes(downloaded))
+				}
+			}
+		}
+		if readErr == io.EOF {
+			if output != nil {
+				fmt.Fprintln(output)
+			}
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+func formatBytes(value int64) string {
+	const unit = 1024
+	if value < unit {
+		return fmt.Sprintf("%d B", value)
+	}
+	divisor, exponent := int64(unit), 0
+	for amount := value / unit; amount >= unit; amount /= unit {
+		divisor *= unit
+		exponent++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(value)/float64(divisor), "KMGTPE"[exponent])
 }
 
 func platformAssetName() string {

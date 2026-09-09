@@ -298,7 +298,7 @@ func TestMainMenuOpensMaintenanceSubmenu(t *testing.T) {
 	if err := app.interactive(); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"u. 更新/卸载", "1. 检测更新  2. 更新  3. 卸载  0. 返回"} {
+	for _, expected := range []string{"u. 更新/卸载", "1. 检测更新\n  2. 更新\n  3. 卸载\n  0. 返回"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("maintenance menu missing %q: %q", expected, output.String())
 		}
