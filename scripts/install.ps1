@@ -1,16 +1,25 @@
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$Version = "latest",
-    [string]$GitHubMirror = ""
+    [switch]$GitHubMirror,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$GitHubMirrorArguments
 )
 
 $ErrorActionPreference = "Stop"
 $repository = "accloud-proj/x-cmd"
 $InstallDir = Join-Path $env:LOCALAPPDATA "x-cmd"
 $builtInGitHubMirror = "https://github.uzfdafw.cc"
+if ($GitHubMirrorArguments.Count -gt 1 -or ($GitHubMirrorArguments.Count -eq 1 -and -not $GitHubMirror)) {
+    throw "Usage: install.ps1 [-Version VERSION] [-GitHubMirror [URL]]"
+}
 if ($GitHubMirror) {
-    if ($GitHubMirror -notmatch '^https?://') { $GitHubMirror = "https://$GitHubMirror" }
-    $GitHubMirror = $GitHubMirror.TrimEnd('/')
+    $GitHubMirrorUrl = if ($GitHubMirrorArguments.Count -eq 1) { $GitHubMirrorArguments[0] } else { $builtInGitHubMirror }
+    if ($GitHubMirrorUrl -notmatch '^https?://') { $GitHubMirrorUrl = "https://$GitHubMirrorUrl" }
+    $GitHubMirrorUrl = $GitHubMirrorUrl.TrimEnd('/')
+}
+else {
+    $GitHubMirrorUrl = ""
 }
 $architecture = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) {
     "X64" { "amd64" }
@@ -31,7 +40,7 @@ $checksumFile = [System.IO.Path]::GetFileNameWithoutExtension($asset) + "_sum.tx
 
 function Get-GitHubUrl([string]$FileName) {
     $target = "https://github.com/$repository/releases/$releasePath/$FileName"
-    if ($GitHubMirror) { return "$GitHubMirror/$target" }
+    if ($GitHubMirrorUrl) { return "$GitHubMirrorUrl/$target" }
     return $target
 }
 
@@ -40,8 +49,8 @@ function Invoke-GitHubDownload([string]$FileName, [string]$Destination) {
         Invoke-WebRequest -Uri (Get-GitHubUrl $FileName) -OutFile $Destination
     }
     catch {
-        if ($GitHubMirror) { throw }
-        $script:GitHubMirror = $builtInGitHubMirror
+        if ($GitHubMirrorUrl) { throw }
+        $script:GitHubMirrorUrl = $builtInGitHubMirror
         Write-Warning "GitHub is unavailable. Switching to the built-in mirror."
         Invoke-WebRequest -Uri (Get-GitHubUrl $FileName) -OutFile $Destination
     }
@@ -66,8 +75,8 @@ try {
     New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
     $installedPath = Join-Path $InstallDir "x-cmd.exe"
     Copy-Item (Join-Path $temporaryDirectory "x-cmd.exe") $installedPath -Force
-    if ($GitHubMirror) {
-        & $installedPath config set --github-mirror $GitHubMirror
+    if ($GitHubMirrorUrl) {
+        & $installedPath config set --github-mirror $GitHubMirrorUrl
         if ($LASTEXITCODE -ne 0) { throw "Failed to save GitHub routing settings" }
     }
     Write-Host "Installed executable: $installedPath"

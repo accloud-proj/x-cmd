@@ -30,7 +30,13 @@
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh)
 ```
 
-安装脚本默认下载最新 Release。使用 GitHub 镜像：
+安装脚本默认从 GitHub 直连下载最新 Release；如果 GitHub 不可用，会自动切换到内置镜像。强制使用内置镜像：
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
+```
+
+改用自定义镜像：
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
@@ -49,7 +55,13 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 .\install.ps1
 ```
 
-可选参数：
+Windows 安装脚本采用相同的自动回退策略。强制使用内置镜像：
+
+```powershell
+.\install.ps1 -GitHubMirror
+```
+
+改用自定义镜像：
 
 ```powershell
 .\install.ps1 -GitHubMirror https://your-mirror.example

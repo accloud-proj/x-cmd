@@ -30,7 +30,13 @@ English | [简体中文](README.zh-CN.md)
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh)
 ```
 
-The installer downloads the latest Release by default. To use a GitHub mirror:
+The installer downloads the latest Release directly from GitHub by default and automatically falls back to the built-in mirror if GitHub is unavailable. To force the built-in mirror:
+
+```sh
+bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
+```
+
+To use a custom mirror instead:
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror https://your-mirror.example
@@ -49,7 +55,13 @@ Invoke-WebRequest https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 .\install.ps1
 ```
 
-Optional parameters:
+The installer uses the same automatic fallback behavior on Windows. To force the built-in mirror:
+
+```powershell
+.\install.ps1 -GitHubMirror
+```
+
+To use a custom mirror instead:
 
 ```powershell
 .\install.ps1 -GitHubMirror https://your-mirror.example

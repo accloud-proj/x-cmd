@@ -13,7 +13,7 @@ Install x-cmd from GitHub Releases.
 
 Usage: install.sh [options]
   --version VERSION       Release version (default: latest)
-  --github-mirror URL     GitHub mirror prefix, for example https://github.uzfdafw.cc
+  --github-mirror [URL]   Use the built-in GitHub mirror, or a custom mirror URL
   -h, --help              Show this help
 EOF
 }
@@ -21,7 +21,15 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --version) VERSION="${2:?missing value for --version}"; shift 2 ;;
-    --github-mirror) GITHUB_MIRROR="${2:?missing value for --github-mirror}"; shift 2 ;;
+    --github-mirror)
+      if [ "$#" -gt 1 ] && [ "${2#-}" = "$2" ]; then
+        GITHUB_MIRROR="$2"
+        shift 2
+      else
+        GITHUB_MIRROR="$BUILT_IN_GITHUB_MIRROR"
+        shift
+      fi
+      ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;;
   esac
