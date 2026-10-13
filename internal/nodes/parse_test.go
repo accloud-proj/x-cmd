@@ -35,6 +35,41 @@ func TestDecodeV2RayNSubscription(t *testing.T) {
 	}
 }
 
+func TestParseImportSupportsBase64ShareLinks(t *testing.T) {
+	shareLinks := "trojan://secret@example.com:443#one\nvless://00000000-0000-0000-0000-000000000001@two.example:443#two"
+	encoded := base64.StdEncoding.EncodeToString([]byte(shareLinks))
+	parsed, err := ParseImport(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 2 || parsed[0].Name != "one" || parsed[1].Name != "two" {
+		t.Fatalf("unexpected imported links: %#v", parsed)
+	}
+	if parsed[0].URI != "trojan://secret@example.com:443#one" {
+		t.Fatalf("original share link was not preserved: %#v", parsed[0])
+	}
+}
+
+func TestParseImportSupportsFullXrayConfiguration(t *testing.T) {
+	config := `{
+		"remarks":"backup",
+		"outbounds":[
+			{"tag":"proxy-1","protocol":"vmess","settings":{"vnext":[{"address":"one.example","port":443,"users":[{"id":"00000000-0000-0000-0000-000000000001"}]}]}},
+			{"tag":"direct","protocol":"freedom","settings":{}}
+		]
+	}`
+	parsed, err := ParseImport(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed) != 1 || parsed[0].Name != "proxy-1" || parsed[0].Protocol != "vmess" {
+		t.Fatalf("unexpected imported configuration: %#v", parsed)
+	}
+	if _, err := Parse(parsed[0].URI); err != nil {
+		t.Fatalf("generated outbound link cannot be parsed: %v", err)
+	}
+}
+
 func TestV2RayNSubscriptionRejectsClashYAML(t *testing.T) {
 	links := DecodeV2RayNSubscription([]byte("proxies:\n  - name: example\n    type: vmess\n    server: example.com"))
 	if len(links) != 0 {

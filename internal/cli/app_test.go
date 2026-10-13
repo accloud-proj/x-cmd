@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
@@ -190,7 +191,8 @@ func TestShellInheritsEnvironmentAndAddsProxy(t *testing.T) {
 	if err := app.Run([]string{"shell", "powershell"}); err != nil {
 		t.Fatal(err)
 	}
-	if executable != "powershell" || !reflect.DeepEqual(args, []string{"-NoExit"}) {
+	wantArgs := []string{"-NoExit", "-Command", "$global:xCmdOriginalPrompt = (Get-Command prompt).ScriptBlock; function global:prompt { Write-Host -NoNewline -ForegroundColor Cyan '[proxy] '; & $global:xCmdOriginalPrompt }"}
+	if executable != "powershell" || !reflect.DeepEqual(args, wantArgs) {
 		t.Fatalf("shell command = %q %#v", executable, args)
 	}
 	joined := strings.Join(environment, "\n")
@@ -274,10 +276,13 @@ func TestMainMenuIsFullScreenAndContainsProxyShellActions(t *testing.T) {
 	if err := app.interactive(); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"\x1b[2J\x1b[H", "当前版本: " + version.Version, "6. 进入 Shell", "7. 查看临时激活命令"} {
+	for _, expected := range []string{"\x1b[2J\x1b[H", "当前版本: " + version.Version, "6. 进入 Shell", "u. 更新/卸载"} {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("main menu missing %q: %q", expected, output.String())
 		}
+	}
+	if strings.Contains(output.String(), "7. 查看临时激活命令") {
+		t.Fatalf("removed activation item is still displayed: %q", output.String())
 	}
 	if strings.Contains(output.String(), "4. 测试全部节点") {
 		t.Fatalf("node test should not remain in main menu: %q", output.String())
@@ -286,6 +291,25 @@ func TestMainMenuIsFullScreenAndContainsProxyShellActions(t *testing.T) {
 		if !strings.Contains(output.String(), expected) {
 			t.Fatalf("main menu is not indented: missing %q in %q", expected, output.String())
 		}
+	}
+}
+
+func TestHelpDescribesCommandsAndParameters(t *testing.T) {
+	var output bytes.Buffer
+	app := &App{output: &output}
+	if err := app.Run([]string{"-h"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"用法:", "节点管理:", "--uri 内容", "--file 路径", "--delete-invalid",
+		"订阅管理:", "--name 名称", "--url URL", "配置与维护:", "--allow-lan BOOL",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Errorf("help missing %q", expected)
+		}
+	}
+	if strings.Contains(output.String(), "运行 x-cmd <命令> -h 查看参数") {
+		t.Fatal("help must not claim unsupported command-specific help")
 	}
 }
 
@@ -424,10 +448,13 @@ func TestMenuProxyActionsUseAutomaticShellDetection(t *testing.T) {
 	detected := 0
 	app := &App{
 		store:    store,
-		input:    bufio.NewReader(strings.NewReader("6\n7\n0\n")),
+		input:    bufio.NewReader(strings.NewReader("6\n0\n")),
 		output:   &output,
 		portOpen: func(int) bool { return true },
-		waitKey:  func() error { return nil },
+		processRunning: func(int) bool {
+			return true
+		},
+		waitKey: func() error { return nil },
 		detectShell: func() (string, error) {
 			detected++
 			return "pwsh", nil
@@ -442,7 +469,7 @@ func TestMenuProxyActionsUseAutomaticShellDetection(t *testing.T) {
 	if err := app.interactive(); err != nil {
 		t.Fatal(err)
 	}
-	if detected != 2 || !strings.Contains(output.String(), "自动识别 Shell: pwsh") {
+	if detected != 1 || !strings.Contains(output.String(), "自动识别 Shell: pwsh") {
 		t.Fatalf("detected = %d, output = %q", detected, output.String())
 	}
 }
@@ -492,6 +519,44 @@ func TestNodeAddAndList(t *testing.T) {
 	}
 	if len(data.Nodes) != 1 || data.Settings.ActiveNodeID != data.Nodes[0].ID {
 		t.Fatalf("first node was not selected: %#v", data.Settings)
+	}
+}
+
+func TestNodeAddImportsBase64ShareLinks(t *testing.T) {
+	link := "trojan://secret@example.com:443#encoded"
+	encoded := base64.StdEncoding.EncodeToString([]byte(link))
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	var output bytes.Buffer
+	app := &App{store: store, output: &output}
+	if err := app.Run([]string{"node", "add", "--uri", encoded}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Nodes) != 1 || data.Nodes[0].URI != link {
+		t.Fatalf("unexpected imported nodes: %#v", data.Nodes)
+	}
+}
+
+func TestNodeAddImportsFullConfigurationFile(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	config := `{"outbounds":[{"tag":"proxy","protocol":"trojan","settings":{"servers":[{"address":"example.com","port":443,"password":"secret"}]}},{"tag":"direct","protocol":"freedom","settings":{}}]}`
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{store: store, output: io.Discard}
+	if err := app.Run([]string{"node", "add", "--file", configPath}); err != nil {
+		t.Fatal(err)
+	}
+	data, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Nodes) != 1 || data.Nodes[0].Name != "proxy" || !strings.HasPrefix(data.Nodes[0].URI, "xray://") {
+		t.Fatalf("unexpected imported nodes: %#v", data.Nodes)
 	}
 }
 
@@ -545,7 +610,12 @@ func TestDeleteActiveNodeSelectsNextAndStopsConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	var actions []string
-	app := &App{store: store, output: io.Discard}
+	app := &App{
+		store:          store,
+		output:         io.Discard,
+		portOpen:       func(int) bool { return true },
+		processRunning: func(int) bool { return true },
+	}
 	app.serviceFn = func(action string) error {
 		actions = append(actions, action)
 		current, err := store.Load()
@@ -582,6 +652,83 @@ func TestDeleteOnlyActiveNodeClearsSelection(t *testing.T) {
 	data, _ = store.Load()
 	if len(data.Nodes) != 0 || data.Settings.ActiveNodeID != "" {
 		t.Fatalf("unexpected state: %#v", data)
+	}
+}
+
+func TestDeleteActiveNodeWhileStoppedClearsStaleRuntime(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Nodes = []state.Node{{ID: "stale", Name: "stale"}}
+	data.Settings.ActiveNodeID = "stale"
+	data.Runtime = state.Runtime{PID: 42, NodeID: "stale"}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		store:          store,
+		output:         io.Discard,
+		portOpen:       func(int) bool { return false },
+		processRunning: func(int) bool { return false },
+		serviceFn: func(string) error {
+			t.Fatal("stopped connection should not invoke stop")
+			return nil
+		},
+	}
+	if err := app.Run([]string{"node", "delete", "stale"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = store.Load()
+	if len(data.Nodes) != 0 || data.Settings.ActiveNodeID != "" || data.Runtime.PID != 0 {
+		t.Fatalf("unexpected state after deletion: %#v", data)
+	}
+}
+
+func TestDeleteSubscriptionContainingSelectedNodeWhileStopped(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Subscriptions = []state.Subscription{{ID: "sub", Name: "subscription"}}
+	data.Nodes = []state.Node{
+		{ID: "selected", Name: "selected", SubscriptionID: "sub"},
+		{ID: "other", Name: "other"},
+	}
+	data.Settings.ActiveNodeID = "selected"
+	data.Runtime = state.Runtime{PID: 42, NodeID: "selected"}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		store:          store,
+		output:         io.Discard,
+		portOpen:       func(int) bool { return false },
+		processRunning: func(int) bool { return false },
+	}
+	if err := app.Run([]string{"sub", "delete", "subscription"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = store.Load()
+	if len(data.Subscriptions) != 0 || len(data.Nodes) != 1 || data.Settings.ActiveNodeID != "other" || data.Runtime.PID != 0 {
+		t.Fatalf("unexpected data after deleting stopped subscription: %#v", data)
+	}
+}
+
+func TestDeleteSubscriptionInUseWhileConnectedIsRejected(t *testing.T) {
+	store := state.New(filepath.Join(t.TempDir(), "config.json"))
+	data, _ := store.Load()
+	data.Subscriptions = []state.Subscription{{ID: "sub", Name: "subscription"}}
+	data.Nodes = []state.Node{{ID: "selected", Name: "selected", SubscriptionID: "sub"}}
+	data.Settings.ActiveNodeID = "selected"
+	data.Runtime = state.Runtime{PID: 42, NodeID: "selected"}
+	if err := store.Save(data); err != nil {
+		t.Fatal(err)
+	}
+	app := &App{
+		store:          store,
+		output:         io.Discard,
+		portOpen:       func(int) bool { return true },
+		processRunning: func(int) bool { return true },
+	}
+	if err := app.Run([]string{"sub", "delete", "subscription"}); err == nil {
+		t.Fatal("deleting a connected subscription should be rejected")
 	}
 }
 

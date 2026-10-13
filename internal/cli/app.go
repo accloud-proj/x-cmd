@@ -162,7 +162,7 @@ func (a *App) shell(args []string) error {
 	if run == nil {
 		run = shellenv.Run
 	}
-	return run(name, commandArgs, shellenv.Environment(os.Environ(), data.Settings.ListenPort))
+	return run(name, commandArgs, shellenv.EnvironmentForShell(os.Environ(), data.Settings.ListenPort, name))
 }
 
 func (a *App) isPortOpen(port int) bool {
@@ -339,42 +339,52 @@ func (a *App) xrayReleases() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	rewriters, err := githuburl.Candidates(data.Settings.GitHubMirror)
-	if err != nil {
-		return err
-	}
-	var releases []xray.Release
-	var selected githuburl.Rewriter
-	for index, rewriter := range rewriters {
-		if index > 0 {
-			a.printGitHubCandidateSwitch(rewriter)
+	releases, err := xray.StableReleases(ctx, "https://api.github.com/repos/XTLS/Xray-core/tags?per_page=20", 5)
+	if err == nil && len(releases) > 0 {
+		fmt.Fprintln(a.output, "\n[信息] 最新的 Xray 稳定版本:")
+		for index, release := range releases {
+			fmt.Fprintf(a.output, "%d. %s\n", index+1, release.TagName)
 		}
-		endpoint, rewriteErr := rewriter.Rewrite("https://api.github.com/repos/XTLS/Xray-core/tags?per_page=20")
+		return nil
+	}
+	apiErr := err
+	if apiErr == nil {
+		apiErr = fmt.Errorf("未获取到可用的稳定版本")
+	}
+	rewriters := []githuburl.Rewriter{{}}
+	if data.Settings.GitHubMirror != "" {
+		configured, err := githuburl.New(data.Settings.GitHubMirror)
+		if err != nil {
+			return err
+		}
+		rewriters = append(rewriters, configured)
+	} else {
+		fallback, err := githuburl.Candidates("")
+		if err != nil {
+			return err
+		}
+		for _, candidate := range fallback {
+			if candidate.Mirror != "" {
+				rewriters = append(rewriters, candidate)
+			}
+		}
+	}
+	for _, rewriter := range rewriters {
+		endpoint, rewriteErr := rewriter.Rewrite("https://github.com/XTLS/Xray-core/releases/latest")
 		if rewriteErr != nil {
 			return rewriteErr
 		}
-		releases, err = xray.StableReleases(ctx, endpoint, 5)
-		if err == nil && len(releases) > 0 {
-			selected = rewriter
-			break
+		release, pageErr := xray.LatestStableRelease(ctx, endpoint)
+		if pageErr == nil {
+			fmt.Fprintf(a.output, "\n[信息] 最新的 Xray 稳定版本（Release 页面回退）:\n1. %s\n", release.TagName)
+			return nil
 		}
+		err = pageErr
 	}
 	if err != nil {
-		return err
+		return fmt.Errorf("获取 Xray 稳定版本失败（GitHub API: %v；Release 页面: %w）", apiErr, err)
 	}
-	if len(releases) == 0 {
-		return fmt.Errorf("未获取到可用的 Xray 稳定版本")
-	}
-	if a.persistSelectedMirror(&data, selected) {
-		if err := a.store.Save(data); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintln(a.output, "\n[信息] 最新的 Xray 稳定版本:")
-	for index, release := range releases {
-		fmt.Fprintf(a.output, "%d. %s\n", index+1, release.TagName)
-	}
-	return nil
+	return fmt.Errorf("未获取到可用的 Xray 稳定版本")
 }
 
 func (a *App) config(args []string) error {
@@ -534,13 +544,27 @@ func (a *App) subscriptions(args []string) error {
 			return err
 		}
 		id := data.Subscriptions[index].ID
+		hasActiveNode := false
 		for _, node := range data.Nodes {
 			if node.SubscriptionID == id && node.ID == data.Settings.ActiveNodeID {
-				return fmt.Errorf("该订阅包含活动节点，请先使用 node use 切换节点")
+				hasActiveNode = true
+				break
 			}
+		}
+		if hasActiveNode && a.connectionRunning(data) {
+			return fmt.Errorf("该订阅包含正在使用的节点，请先停止连接或切换到其他订阅的节点")
 		}
 		data.Subscriptions = append(data.Subscriptions[:index], data.Subscriptions[index+1:]...)
 		data.Nodes = filterNodes(data.Nodes, func(node state.Node) bool { return node.SubscriptionID != id })
+		if hasActiveNode {
+			data.Settings.ActiveNodeID = ""
+			if len(data.Nodes) > 0 {
+				data.Settings.ActiveNodeID = data.Nodes[0].ID
+			}
+		}
+		if !a.connectionRunning(data) {
+			data.Runtime = state.Runtime{}
+		}
 		return a.store.Save(data)
 	case "update":
 		id := ""
@@ -675,33 +699,55 @@ func (a *App) node(args []string) error {
 	case "add":
 		flags := newFlagSet("node add")
 		name := flags.String("name", "", "节点名称")
-		uri := flags.String("uri", "", "分享链接")
+		uri := flags.String("uri", "", "分享链接、Base64 链接或完整配置")
+		file := flags.String("file", "", "从文件导入完整配置")
 		if err := flags.Parse(args[1:]); err != nil {
 			return err
 		}
-		if *uri == "" && flags.NArg() > 0 {
+		if flags.NArg() > 1 || (flags.NArg() == 1 && (*uri != "" || *file != "")) {
+			return fmt.Errorf("用法: x-cmd node add [--uri 内容 | --file 路径] [--name 名称]")
+		}
+		if *uri == "" && flags.NArg() == 1 {
 			*uri = flags.Arg(0)
 		}
-		parsed, err := nodes.Parse(*uri)
+		if (*uri == "") == (*file == "") {
+			return fmt.Errorf("必须且只能指定 --uri 或 --file")
+		}
+		importValue := *uri
+		if *file != "" {
+			content, err := os.ReadFile(*file)
+			if err != nil {
+				return fmt.Errorf("读取配置文件失败: %w", err)
+			}
+			importValue = string(content)
+		}
+		parsedNodes, err := nodes.ParseImport(importValue)
 		if err != nil {
 			return err
 		}
-		if *name == "" {
-			*name = parsed.Name
+		if *name != "" && len(parsedNodes) != 1 {
+			return fmt.Errorf("--name 仅适用于导入单个节点")
 		}
 		data, err := a.store.Load()
 		if err != nil {
 			return err
 		}
-		node := state.Node{ID: state.NewID(), Name: *name, URI: *uri, UpdatedAt: time.Now()}
-		data.Nodes = append(data.Nodes, node)
-		if data.Settings.ActiveNodeID == "" {
-			data.Settings.ActiveNodeID = node.ID
+		now := time.Now()
+		for _, parsed := range parsedNodes {
+			nodeName := parsed.Name
+			if *name != "" {
+				nodeName = *name
+			}
+			node := state.Node{ID: state.NewID(), Name: nodeName, URI: parsed.URI, UpdatedAt: now}
+			data.Nodes = append(data.Nodes, node)
+			if data.Settings.ActiveNodeID == "" {
+				data.Settings.ActiveNodeID = node.ID
+			}
 		}
 		if err := a.store.Save(data); err != nil {
 			return err
 		}
-		fmt.Fprintln(a.output, "[成功] 已添加节点:", node.ID)
+		fmt.Fprintf(a.output, "[成功] 已导入 %d 个节点\n", len(parsedNodes))
 		return nil
 	case "delete", "rm":
 		if len(args) != 2 {
@@ -716,7 +762,7 @@ func (a *App) node(args []string) error {
 			return err
 		}
 		deletingActive := data.Nodes[index].ID == data.Settings.ActiveNodeID
-		if deletingActive && data.Runtime.PID > 0 {
+		if deletingActive && a.connectionRunning(data) {
 			if err := a.runService("stop"); err != nil {
 				return err
 			}
@@ -728,6 +774,9 @@ func (a *App) node(args []string) error {
 			if err != nil {
 				return err
 			}
+		}
+		if deletingActive && !a.connectionRunning(data) {
+			data.Runtime = state.Runtime{}
 		}
 		data.Nodes = append(data.Nodes[:index], data.Nodes[index+1:]...)
 		if deletingActive {
@@ -1069,7 +1118,7 @@ func (a *App) interactive() error {
 	defer func() { a.output = originalOutput }()
 	for {
 		a.clearScreen()
-		a.printMenu(fmt.Sprintf("X-CMD  Xray 管理工具\n当前版本: %s\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 修改配置\n5. 连接管理\n6. 进入 Shell\n7. 查看临时激活命令\nu. 更新/卸载\n0. 退出", version.Version))
+		a.printMenu(fmt.Sprintf("X-CMD  Xray 管理工具\n当前版本: %s\n1. 内核信息与安装\n2. 订阅管理\n3. 节点管理\n4. 修改配置\n5. 连接管理\n6. 进入 Shell\nu. 更新/卸载\n0. 退出", version.Version))
 		choice := a.prompt("请选择")
 		if choice == "" {
 			continue
@@ -1094,8 +1143,6 @@ func (a *App) interactive() error {
 			returnedFromSubmenu = true
 		case "6":
 			err = a.interactiveProxyAction(a.shell)
-		case "7":
-			err = a.interactiveProxyAction(a.activate)
 		case "u", "U":
 			var uninstalled bool
 			uninstalled, err = a.interactiveMaintenance()
@@ -1292,7 +1339,7 @@ func (a *App) interactiveNodes(subscriptionID string) error {
 			}
 			err = a.node([]string{"use", data.Nodes[selection].ID})
 		case "a":
-			err = a.node([]string{"add", "--uri", a.prompt("节点分享链接"), "--name", a.prompt("名称（可留空）")})
+			err = a.node([]string{"add", "--uri", a.prompt("节点分享链接或 Base64 链接"), "--name", a.prompt("名称（可留空）")})
 		case "d":
 			selection, selectErr := nodeSelectionInSubscription(data, a.prompt("节点序号或 ID"), subscriptionID)
 			if selectErr != nil {
@@ -1415,24 +1462,79 @@ func waitForKey(input *bufio.Reader) error {
 
 func (a *App) printHelp() {
 	fmt.Fprintln(a.output, `x-cmd - xray-core 命令行管理工具
+用法:
+  x-cmd                         打开交互式菜单
+  x-cmd <命令> [子命令] [参数]
+  x-cmd -h | --help              显示本帮助
+  x-cmd -v | --version           显示版本
 
-无参数启动中文交互菜单。
+连接管理:
+  system start                  使用当前活动节点启动代理
+  system status                 查看连接状态
+  system stop                   停止代理连接
+  shell [Shell]                 启动带代理环境和 [proxy] 提示的子 Shell
+  activate [Shell]              输出设置代理环境变量的脚本，供当前 Shell 加载
+    Shell: sh、bash、zsh、fish、powershell、pwsh 或 cmd；省略时自动检测
 
-命令:
-	system start|status|stop
-	shell [sh|bash|zsh|fish|powershell|pwsh|cmd]
-	activate [sh|bash|zsh|fish|powershell|pwsh|cmd]
-	update check|install
-	uninstall [--yes]
-	completion install|uninstall [bash|zsh|fish|powershell]
-	github-mirror show|set <URL>|delete
-	core show|releases|install --version VERSION [--dir DIR]
-	config show|set [--download-url URL] [--github-mirror URL] [--xray-path PATH] [--test-url URL] [--listen-port PORT] [--allow-lan BOOL]
-  sub list|add|edit|delete|update|nodes
-	node list|add|use|delete|test [--delete-invalid] [--subscription 序号或名称]
-  version
+内核管理:
+  core show                     查看内核路径和版本
+  core releases                 查看 Xray 稳定版
+  core install --version 版本 [--dir 目录]
+    --version 版本              要安装的 Xray 版本，例如 v26.3.27（必填）
+    --dir 目录                  指定安装目录；省略时使用默认目录
 
-运行 x-cmd <命令> -h 查看参数。`)
+节点管理:
+  node list [--subscription 订阅]
+                                列出节点；订阅可用序号或名称
+  node add (--uri 内容 | --file 路径) [--name 名称]
+    --uri 内容                  分享链接、Base64 分享链接或完整 Xray JSON 配置
+    --file 路径                 从文件读取分享链接或 Xray JSON 配置
+    --name 名称                 覆盖导入节点名称；仅适用于单节点导入
+  node use <序号或 ID>          设置活动节点；连接运行中时自动重启
+  node delete <序号或 ID>       删除节点
+  node test [--subscription 订阅] [--timeout 时长] [--delete-invalid]
+    --subscription 订阅         只测试指定订阅的节点
+    --timeout 时长              单节点测试超时，默认 10s
+    --delete-invalid            自动删除测试失败的节点
+
+订阅管理:
+  sub list                      列出订阅
+  sub add --name 名称 --url URL 添加订阅并立即更新
+    --name 名称                 订阅显示名称（必填）
+    --url URL                   订阅地址（必填）
+  sub edit <序号或名称> [--name 名称] [--url URL]
+                                修改订阅名称或地址
+  sub update [序号或名称|all]   更新指定订阅；省略时更新全部
+  sub nodes <序号或名称>        列出该订阅的节点
+  sub delete <序号或名称>       删除订阅及其节点
+  （subscription 可作为 sub 的别名）
+
+配置与维护:
+  config show                   显示配置
+  config set [选项...]          修改一项或多项配置
+    --download-url URL          Xray Release 下载地址
+    --github-mirror URL         GitHub 镜像地址；空值恢复自动模式
+    --xray-path 路径            Xray 可执行文件路径
+    --test-url URL              节点连通性测试地址
+    --listen-port 端口          本地代理监听端口
+    --allow-lan BOOL            是否允许局域网连接：true 或 false
+  github-mirror show            查看当前镜像设置
+  github-mirror set URL         设置 GitHub 镜像
+  github-mirror delete          清除设置并恢复自动模式
+  update [check|install]        检查更新（默认）或安装更新
+  completion install|uninstall [bash|zsh|fish|powershell]
+                                安装或卸载命令补全；Shell 可省略以自动检测
+  uninstall [--yes]             卸载程序和全部配置；--yes 跳过确认
+
+示例:
+  x-cmd node add --uri 'vless://...'
+  x-cmd node add --uri 'BASE64分享链接'
+  x-cmd node add --file ./config.json
+  x-cmd sub add --name '订阅 A' --url 'https://example.com/sub'
+  x-cmd config set --listen-port 2080 --allow-lan false
+  eval "$(x-cmd activate bash)"
+
+代理连接启动后才能使用 shell 或 activate。`)
 }
 
 func newFlagSet(name string) *flag.FlagSet {

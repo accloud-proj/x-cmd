@@ -12,6 +12,7 @@ import (
 type Parsed struct {
 	Name     string
 	Protocol string
+	URI      string
 	Outbound map[string]any
 }
 
@@ -33,6 +34,123 @@ func Parse(uri string) (Parsed, error) {
 	default:
 		return Parsed{}, fmt.Errorf("不支持的节点协议")
 	}
+}
+
+// ParseImport accepts v2rayN share links, Base64-encoded links, and Xray JSON
+// configurations exported by v2rayN.
+func ParseImport(value string) ([]Parsed, error) {
+	return parseImport(value, true)
+}
+
+func parseImport(value string, allowBase64 bool) ([]Parsed, error) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return nil, fmt.Errorf("导入内容不能为空")
+	}
+
+	links := DecodeV2RayNSubscription([]byte(text))
+	if len(links) > 0 {
+		parsed := make([]Parsed, 0, len(links))
+		for _, link := range links {
+			node, err := Parse(link)
+			if err != nil {
+				return nil, err
+			}
+			node.URI = link
+			parsed = append(parsed, node)
+		}
+		return parsed, nil
+	}
+
+	if strings.HasPrefix(text, "{") {
+		parsed, err := parseXrayConfig([]byte(text))
+		if err == nil {
+			return parsed, nil
+		}
+		if !allowBase64 {
+			return nil, err
+		}
+	}
+
+	if allowBase64 {
+		decoded, err := decodeBase64(text)
+		if err == nil && string(decoded) != text {
+			parsed, parseErr := parseImport(string(decoded), false)
+			if parseErr == nil {
+				return parsed, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("无法识别导入内容：请提供 v2rayN 分享链接、Base64 分享链接或 Xray JSON 配置")
+}
+
+func parseXrayConfig(raw []byte) ([]Parsed, error) {
+	var config map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return nil, fmt.Errorf("无效 Xray JSON 配置: %w", err)
+	}
+	configName := ""
+	for _, key := range []string{"remarks", "name"} {
+		if json.Unmarshal(config[key], &configName) == nil && configName != "" {
+			break
+		}
+	}
+
+	var rawOutbounds []json.RawMessage
+	if outbound, ok := config["outbounds"]; ok {
+		if err := json.Unmarshal(outbound, &rawOutbounds); err != nil {
+			return nil, fmt.Errorf("Xray JSON 配置中的 outbounds 格式无效: %w", err)
+		}
+	} else if outbound, ok := config["outbound"]; ok {
+		var list []json.RawMessage
+		if json.Unmarshal(outbound, &list) == nil {
+			rawOutbounds = list
+		} else {
+			rawOutbounds = []json.RawMessage{outbound}
+		}
+	} else if _, ok := config["protocol"]; ok {
+		rawOutbounds = []json.RawMessage{raw}
+	} else {
+		return nil, fmt.Errorf("Xray JSON 配置缺少 outbound 或 outbounds")
+	}
+
+	var parsed []Parsed
+	for _, rawOutbound := range rawOutbounds {
+		var outbound map[string]any
+		if err := json.Unmarshal(rawOutbound, &outbound); err != nil {
+			return nil, fmt.Errorf("Xray JSON 配置包含无效 outbound: %w", err)
+		}
+		protocol, _ := outbound["protocol"].(string)
+		switch protocol {
+		case "", "freedom", "blackhole", "dns", "loopback":
+			continue
+		}
+		if _, ok := outbound["settings"]; !ok {
+			continue
+		}
+		encoded, err := json.Marshal(outbound)
+		if err != nil {
+			return nil, err
+		}
+		name, _ := outbound["tag"].(string)
+		if name == "" && len(rawOutbounds) == 1 {
+			name = configName
+		}
+		link := "xray://" + base64.RawURLEncoding.EncodeToString(encoded)
+		if name != "" {
+			link += "#" + url.QueryEscape(name)
+		}
+		node, err := Parse(link)
+		if err != nil {
+			return nil, err
+		}
+		node.URI = link
+		parsed = append(parsed, node)
+	}
+	if len(parsed) == 0 {
+		return nil, fmt.Errorf("Xray JSON 配置中没有可导入的代理 outbound")
+	}
+	return parsed, nil
 }
 
 // DecodeV2RayNSubscription decodes a v2rayN Base64 or plain URI subscription.

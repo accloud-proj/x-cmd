@@ -22,6 +22,9 @@ type Release struct {
 }
 
 func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -53,6 +56,30 @@ func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 		}
 	}
 	return releases, nil
+}
+
+func LatestStableRelease(ctx context.Context, endpoint string) (Release, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return Release{}, err
+	}
+	request.Header.Set("User-Agent", "x-cmd")
+	response, err := (&http.Client{Timeout: 8 * time.Second}).Do(request)
+	if err != nil {
+		return Release{}, fmt.Errorf("获取 Xray 最新版本失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return Release{}, fmt.Errorf("获取 Xray 最新版本失败: HTTP %s", response.Status)
+	}
+	if response.Request == nil || response.Request.URL == nil {
+		return Release{}, fmt.Errorf("获取 Xray 最新版本失败: 响应缺少最终 URL")
+	}
+	parts := strings.Split(strings.Trim(response.Request.URL.Path, "/"), "/")
+	if len(parts) < 2 || parts[len(parts)-2] != "tag" || !stableVersionTag(parts[len(parts)-1]) {
+		return Release{}, fmt.Errorf("无法从 Release 页面解析稳定版本")
+	}
+	return Release{TagName: parts[len(parts)-1]}, nil
 }
 
 func stableVersionTag(tag string) bool {

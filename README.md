@@ -18,7 +18,7 @@ English | [简体中文](README.zh-CN.md)
 - Manage multiple v2rayN subscriptions and standalone share links
 - Perform real proxy connection tests and optionally remove failed nodes
 - Run an HTTP/SOCKS mixed proxy on `127.0.0.1:1091`
-- Start and stop xray, then open a proxy-configured child shell
+- Start and stop xray, then open a proxy-configured child shell with a `[proxy]` prompt marker
 - Check GitHub Releases and update the current executable online
 - Build Windows, Linux, macOS, FreeBSD, and OpenBSD release artifacts on multiple architectures
 
@@ -34,6 +34,12 @@ The installer downloads the latest Release directly from GitHub by default and a
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
+```
+
+If GitHub Raw is unavailable, fetch the installer through the mirror and force mirror downloads:
+
+```sh
+bash <(curl -fsSL https://github.uzfdafw.cc/https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
 ```
 
 To use a custom mirror instead:
@@ -75,7 +81,7 @@ If GitHub is unreachable, open [scripts/install.ps1](scripts/install.ps1) in any
 
 ## Supported Links
 
-VMess, VLESS, Trojan, Shadowsocks, HTTP/HTTPS, SOCKS5, and native `xray://` outbound links are supported. Subscriptions can use Base64-encoded or plain-text v2rayN format.
+VMess, VLESS, Trojan, Shadowsocks, HTTP/HTTPS, SOCKS5, and native `xray://` outbound links are supported. Node imports accept v2rayN share links, Base64-encoded share links, and full Xray JSON configurations (`node add --uri` or `node add --file`). Subscriptions can use Base64-encoded or plain-text v2rayN format.
 
 ## Shell Completion
 

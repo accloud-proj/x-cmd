@@ -9,6 +9,25 @@ import (
 	"testing"
 )
 
+func TestLatestStableReleaseUsesFinalRedirectTag(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/latest" {
+			http.Redirect(writer, request, "/releases/tag/v26.10.10", http.StatusFound)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	release, err := LatestStableRelease(context.Background(), server.URL+"/latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.TagName != "v26.10.10" {
+		t.Fatalf("tag = %q, want v26.10.10", release.TagName)
+	}
+}
+
 func TestStableReleasesFiltersPrereleasesAndLimitsResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if accept := request.Header.Get("Accept"); accept != "application/vnd.github+json" {

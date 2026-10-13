@@ -18,7 +18,7 @@
 - 管理多个 v2rayN 订阅和独立分享链接
 - 进行真实代理连接测试，并可自动删除失效节点
 - 在 `127.0.0.1:1091` 提供 HTTP/SOCKS mixed 代理
-- 启停 xray、查看状态，并进入已配置代理的子 Shell
+- 启停 xray、查看状态，并进入带 `[proxy]` 提示的代理子 Shell
 - 检查 GitHub Release 并在线更新当前程序
 - 构建 Windows、Linux、macOS、FreeBSD 和 OpenBSD 多架构发布包
 
@@ -34,6 +34,12 @@ bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/sc
 
 ```sh
 bash <(curl -fsSL https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
+```
+
+如果无法访问 GitHub Raw，可通过镜像获取安装脚本并强制从镜像下载安装：
+
+```sh
+bash <(curl -fsSL https://github.uzfdafw.cc/https://raw.githubusercontent.com/accloud-proj/x-cmd/master/scripts/install.sh) --github-mirror
 ```
 
 改用自定义镜像：
@@ -75,7 +81,12 @@ Windows 安装脚本采用相同的自动回退策略。强制使用内置镜像
 
 ## 支持的链接
 
-支持 VMess、VLESS、Trojan、Shadowsocks、HTTP/HTTPS、SOCKS5 和原生 `xray://` 出站链接。订阅支持 Base64 编码或纯文本 v2rayN 格式。
+支持 VMess、VLESS、Trojan、Shadowsocks、HTTP/HTTPS、SOCKS5 和原生 `xray://` 出站链接。节点导入支持 v2rayN 分享链接、Base64 编码的分享链接，以及 Xray JSON 完整配置；JSON 配置可通过 `--uri` 传入，也可用 `--file` 从文件导入。订阅支持 Base64 编码或纯文本 v2rayN 格式。
+
+```sh
+x-cmd node add --uri "BASE64编码的分享链接"
+x-cmd node add --file ./config.json
+```
 
 ## 命令行自动补全
 

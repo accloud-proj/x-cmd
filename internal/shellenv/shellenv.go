@@ -105,6 +105,18 @@ func Environment(current []string, port int) []string {
 	return result
 }
 
+func EnvironmentForShell(current []string, port int, shell string) []string {
+	environment := Environment(current, port)
+	switch shell {
+	case "sh":
+		return setEnvironmentValue(environment, "PS1", "\033[1;36m[proxy]\033[0m $ ")
+	case "cmd":
+		return setEnvironmentValue(environment, "PROMPT", "[proxy] $P$G ")
+	default:
+		return environment
+	}
+}
+
 func Values(port int) map[string]string {
 	address := fmt.Sprintf("127.0.0.1:%d", port)
 	return map[string]string{
@@ -120,16 +132,130 @@ func Command(shell string) (string, []string, error) {
 	}
 	args := []string{"-i"}
 	if shell == "powershell" || shell == "pwsh" {
-		args = []string{"-NoExit"}
+		args = []string{"-NoExit", "-Command", "$global:xCmdOriginalPrompt = (Get-Command prompt).ScriptBlock; function global:prompt { Write-Host -NoNewline -ForegroundColor Cyan '[proxy] '; & $global:xCmdOriginalPrompt }"}
 	} else if shell == "cmd" {
 		args = []string{"/K"}
 	} else if shell == "sh" {
 		args = nil
+	} else if shell == "fish" {
+		args = []string{"-i", "-C", "function fish_prompt; set_color cyan; printf '[proxy] '; set_color normal; printf '%s> ' (prompt_pwd); end"}
 	}
 	return shell, args, nil
 }
 
+func preparePrompt(name string, args, environment []string) ([]string, []string, func(), error) {
+	switch filepath.Base(name) {
+	case "bash":
+		home := environmentValue(environment, "HOME")
+		rcFile := filepath.Join(home, ".bashrc")
+		if home == "" {
+			rcFile = ""
+		}
+		directory, err := os.MkdirTemp("", "x-cmd-shell-")
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("创建 Shell 启动配置失败: %w", err)
+		}
+		rcPath := filepath.Join(directory, "bashrc")
+		rc := ""
+		if rcFile != "" {
+			rc += "if [ -r " + shellQuote(rcFile) + " ]; then . " + shellQuote(rcFile) + "; fi\n"
+		}
+		rc += `__x_cmd_proxy_prompt() {
+  case "$PS1" in *"[proxy]"*) return ;; esac
+  case "$PS1" in
+    $'\n'*) PS1=$'\n\\[\\e[1;36m\\][proxy]\\[\\e[0m\\]'${PS1#$'\n'} ;;
+    *) PS1='\[\e[1;36m\][proxy]\[\e[0m\] '"$PS1" ;;
+  esac
+}
+case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
+  "declare -a"*) PROMPT_COMMAND+=(__x_cmd_proxy_prompt) ;;
+  *) PROMPT_COMMAND="${PROMPT_COMMAND:+$PROMPT_COMMAND; }__x_cmd_proxy_prompt" ;;
+esac
+__x_cmd_proxy_prompt
+`
+		if err := os.WriteFile(rcPath, []byte(rc), 0o600); err != nil {
+			_ = os.RemoveAll(directory)
+			return nil, nil, nil, fmt.Errorf("写入 Bash 启动配置失败: %w", err)
+		}
+		return append([]string{"--rcfile", rcPath}, args...), environment, func() { _ = os.RemoveAll(directory) }, nil
+	case "zsh":
+		originalZdotdir := environmentValue(environment, "ZDOTDIR")
+		if originalZdotdir == "" {
+			originalZdotdir = environmentValue(environment, "HOME")
+		}
+		if originalZdotdir == "" {
+			originalZdotdir = "."
+		}
+		directory, err := os.MkdirTemp("", "x-cmd-shell-")
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("创建 Shell 启动配置失败: %w", err)
+		}
+		zshenv := "ZDOTDIR=" + shellQuote(originalZdotdir) + "\n"
+		zshenv += "if [ -r " + shellQuote(filepath.Join(originalZdotdir, ".zshenv")) + " ]; then source " + shellQuote(filepath.Join(originalZdotdir, ".zshenv")) + "; fi\n"
+		zshenv += "ZDOTDIR=" + shellQuote(directory) + "\n"
+		zshrc := "ZDOTDIR=" + shellQuote(originalZdotdir) + "\n"
+		zshrc += "if [ -r " + shellQuote(filepath.Join(originalZdotdir, ".zshrc")) + " ]; then source " + shellQuote(filepath.Join(originalZdotdir, ".zshrc")) + "; fi\n"
+		zshrc += "ZDOTDIR=" + shellQuote(directory) + "\n"
+		zshrc += `__x_cmd_original_prompt=$PROMPT
+__x_cmd_render_proxy_prompt() {
+  local exit_status=$?
+  local prompt_expression=${__x_cmd_original_prompt//\$\?/$exit_status}
+  local rendered
+  eval "rendered=$prompt_expression" || return
+  while [[ "$rendered" == $'\n'* ]]; do
+    rendered=${rendered#$'\n'}
+  done
+  print -rn -- "%F{cyan}[proxy]%f $rendered"
+}
+PROMPT='$( __x_cmd_render_proxy_prompt )'
+typeset +x ZDOTDIR
+`
+		for file, content := range map[string]string{".zshenv": zshenv, ".zshrc": zshrc} {
+			if err := os.WriteFile(filepath.Join(directory, file), []byte(content), 0o600); err != nil {
+				_ = os.RemoveAll(directory)
+				return nil, nil, nil, fmt.Errorf("写入 Zsh 启动配置失败: %w", err)
+			}
+		}
+		environment = setEnvironmentValue(environment, "ZDOTDIR", directory)
+		return args, environment, func() { _ = os.RemoveAll(directory) }, nil
+	case "fish":
+		return args, environment, func() {}, nil
+	default:
+		return args, environment, func() {}, nil
+	}
+}
+
+func environmentValue(environment []string, key string) string {
+	for _, item := range environment {
+		name, value, found := strings.Cut(item, "=")
+		if found && strings.EqualFold(name, key) {
+			return value
+		}
+	}
+	return ""
+}
+
+func setEnvironmentValue(environment []string, key, value string) []string {
+	result := make([]string, 0, len(environment)+1)
+	for _, item := range environment {
+		name, _, _ := strings.Cut(item, "=")
+		if !strings.EqualFold(name, key) {
+			result = append(result, item)
+		}
+	}
+	return append(result, key+"="+value)
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
 func Run(name string, args, environment []string) error {
+	args, environment, cleanup, err := preparePrompt(filepath.Base(name), args, environment)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	command := exec.Command(name, args...)
 	command.Env = environment
 	command.Stdin = os.Stdin
