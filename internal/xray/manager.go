@@ -21,7 +21,7 @@ type Release struct {
 	TagName string
 }
 
-func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
+func Releases(ctx context.Context, endpoint string, limit int) ([]Release, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
@@ -33,24 +33,25 @@ func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 	request.Header.Set("User-Agent", "x-cmd")
 	response, err := (&http.Client{Timeout: 8 * time.Second}).Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("获取 Xray 稳定版本失败: %w", err)
+		return nil, fmt.Errorf("获取 Xray Release 失败: %w", err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("获取 Xray 稳定版本失败: HTTP %s", response.Status)
+		return nil, fmt.Errorf("获取 Xray Release 失败: HTTP %s", response.Status)
 	}
-	var tags []struct {
-		Name string `json:"name"`
+	var entries []struct {
+		TagName string `json:"tag_name"`
+		Draft   bool   `json:"draft"`
 	}
-	if err := json.NewDecoder(io.LimitReader(response.Body, 256<<10)).Decode(&tags); err != nil {
-		return nil, fmt.Errorf("解析 Xray 稳定版本失败: %w", err)
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("解析 Xray Release 失败: %w", err)
 	}
 	releases := make([]Release, 0, limit)
-	for _, tag := range tags {
-		if !stableVersionTag(tag.Name) {
+	for _, entry := range entries {
+		if entry.Draft || strings.TrimSpace(entry.TagName) == "" {
 			continue
 		}
-		releases = append(releases, Release{TagName: strings.TrimSpace(tag.Name)})
+		releases = append(releases, Release{TagName: strings.TrimSpace(entry.TagName)})
 		if len(releases) == limit {
 			break
 		}
@@ -58,7 +59,7 @@ func StableReleases(ctx context.Context, endpoint string, limit int) ([]Release,
 	return releases, nil
 }
 
-func LatestStableRelease(ctx context.Context, endpoint string) (Release, error) {
+func LatestRelease(ctx context.Context, endpoint string) (Release, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Release{}, err
@@ -76,15 +77,10 @@ func LatestStableRelease(ctx context.Context, endpoint string) (Release, error) 
 		return Release{}, fmt.Errorf("获取 Xray 最新版本失败: 响应缺少最终 URL")
 	}
 	parts := strings.Split(strings.Trim(response.Request.URL.Path, "/"), "/")
-	if len(parts) < 2 || parts[len(parts)-2] != "tag" || !stableVersionTag(parts[len(parts)-1]) {
-		return Release{}, fmt.Errorf("无法从 Release 页面解析稳定版本")
+	if len(parts) < 2 || parts[len(parts)-2] != "tag" || strings.TrimSpace(parts[len(parts)-1]) == "" {
+		return Release{}, fmt.Errorf("无法从 Release 页面解析版本标签")
 	}
 	return Release{TagName: parts[len(parts)-1]}, nil
-}
-
-func stableVersionTag(tag string) bool {
-	version := strings.TrimPrefix(strings.TrimSpace(tag), "v")
-	return version != "" && !strings.Contains(version, "-")
 }
 
 func Version(ctx context.Context, binary string) (string, error) {

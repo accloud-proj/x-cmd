@@ -9,46 +9,46 @@ import (
 	"testing"
 )
 
-func TestLatestStableReleaseUsesFinalRedirectTag(t *testing.T) {
+func TestLatestReleaseUsesFinalRedirectTag(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/latest" {
-			http.Redirect(writer, request, "/releases/tag/v26.10.10", http.StatusFound)
+			http.Redirect(writer, request, "/releases/tag/v26.10.10-beta.1", http.StatusFound)
 			return
 		}
 		writer.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
-	release, err := LatestStableRelease(context.Background(), server.URL+"/latest")
+	release, err := LatestRelease(context.Background(), server.URL+"/latest")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if release.TagName != "v26.10.10" {
-		t.Fatalf("tag = %q, want v26.10.10", release.TagName)
+	if release.TagName != "v26.10.10-beta.1" {
+		t.Fatalf("tag = %q, want v26.10.10-beta.1", release.TagName)
 	}
 }
 
-func TestStableReleasesFiltersPrereleasesAndLimitsResults(t *testing.T) {
+func TestReleasesIncludesPrereleasesAndLimitsResults(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if accept := request.Header.Get("Accept"); accept != "application/vnd.github+json" {
 			t.Errorf("Accept = %q", accept)
 		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = writer.Write([]byte(`[
-			{"name":"v26.9.1"},
-			{"name":"v26.9.0-beta.1"},
-			{"name":"v26.8.1"},
-			{"name":"v26.8.0-preview"},
-			{"name":"v26.7.1"}
+			{"tag_name":"v26.10.0","draft":true},
+			{"tag_name":""},
+			{"tag_name":"v26.9.1","prerelease":true},
+			{"tag_name":"v26.9.0-beta.1","prerelease":true},
+			{"tag_name":"v26.8.1","prerelease":false}
 		]`))
 	}))
 	defer server.Close()
 
-	releases, err := StableReleases(context.Background(), server.URL, 2)
+	releases, err := Releases(context.Background(), server.URL, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(releases) != 2 || releases[0].TagName != "v26.9.1" || releases[1].TagName != "v26.8.1" {
+	if len(releases) != 2 || releases[0].TagName != "v26.9.1" || releases[1].TagName != "v26.9.0-beta.1" {
 		t.Fatalf("unexpected releases: %#v", releases)
 	}
 }

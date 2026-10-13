@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,22 @@ type releaseFeed struct {
 }
 
 func Latest(ctx context.Context, repository string, rewriter githuburl.Rewriter) (Release, error) {
+	release, apiErr := latestFromAPI(ctx, repository, rewriter)
+	if apiErr == nil {
+		return release, nil
+	}
+	release, feedErr := latestFromAtom(ctx, repository, rewriter)
+	if feedErr == nil {
+		return release, nil
+	}
+	release, pageErr := latestFromPage(ctx, repository, rewriter)
+	if pageErr == nil {
+		return release, nil
+	}
+	return Release{}, fmt.Errorf("检查更新失败: %w", errors.Join(apiErr, feedErr, pageErr))
+}
+
+func latestFromAPI(ctx context.Context, repository string, rewriter githuburl.Rewriter) (Release, error) {
 	requestURL, err := rewriter.Rewrite("https://api.github.com/repos/" + repository + "/releases/latest")
 	if err != nil {
 		return Release{}, err
@@ -50,19 +67,18 @@ func Latest(ctx context.Context, repository string, rewriter githuburl.Rewriter)
 	request.Header.Set("User-Agent", "x-cmd-updater")
 	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
 	if err != nil {
-		return latestFromAtom(ctx, repository, rewriter)
-	}
-	if response.StatusCode != http.StatusOK {
-		response.Body.Close()
-		return latestFromAtom(ctx, repository, rewriter)
+		return Release{}, fmt.Errorf("GitHub Release API 请求失败: %w", err)
 	}
 	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return Release{}, fmt.Errorf("GitHub Release API HTTP %s", response.Status)
+	}
 	var release Release
 	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&release); err != nil {
-		return latestFromAtom(ctx, repository, rewriter)
+		return Release{}, fmt.Errorf("解析 GitHub Release API 失败: %w", err)
 	}
 	if release.TagName == "" {
-		return latestFromAtom(ctx, repository, rewriter)
+		return Release{}, fmt.Errorf("GitHub Release API 没有版本标签")
 	}
 	return release, nil
 }
@@ -94,6 +110,44 @@ func latestFromAtom(ctx context.Context, repository string, rewriter githuburl.R
 		return Release{}, fmt.Errorf("GitHub Release Feed 没有版本标签")
 	}
 	tag := strings.TrimSpace(feed.Entries[0].Title)
+	return releaseFromTag(repository, tag), nil
+}
+
+func latestFromPage(ctx context.Context, repository string, rewriter githuburl.Rewriter) (Release, error) {
+	requestURL, err := rewriter.Rewrite("https://github.com/" + repository + "/releases/latest")
+	if err != nil {
+		return Release{}, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return Release{}, err
+	}
+	request.Header.Set("User-Agent", "x-cmd-updater")
+	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	if err != nil {
+		return Release{}, fmt.Errorf("GitHub Release 页面请求失败: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return Release{}, fmt.Errorf("GitHub Release 页面 HTTP %s", response.Status)
+	}
+	if response.Request == nil || response.Request.URL == nil {
+		return Release{}, fmt.Errorf("GitHub Release 页面响应缺少最终 URL")
+	}
+	prefix := "/" + repository + "/releases/tag/"
+	path := response.Request.URL.Path
+	index := strings.LastIndex(path, prefix)
+	if index < 0 {
+		return Release{}, fmt.Errorf("无法从 GitHub Release 页面解析版本标签")
+	}
+	tag := path[index+len(prefix):]
+	if strings.TrimSpace(tag) == "" || strings.Contains(tag, "/") {
+		return Release{}, fmt.Errorf("GitHub Release 页面包含无效版本标签")
+	}
+	return releaseFromTag(repository, tag), nil
+}
+
+func releaseFromTag(repository, tag string) Release {
 	assetName := platformAssetName()
 	return Release{
 		TagName: tag,
@@ -102,7 +156,7 @@ func latestFromAtom(ctx context.Context, repository string, rewriter githuburl.R
 			Name: assetName,
 			URL:  "https://github.com/" + repository + "/releases/download/" + tag + "/" + assetName,
 		}},
-	}, nil
+	}
 }
 
 func IsNewer(latest, current string) bool {

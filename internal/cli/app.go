@@ -339,9 +339,9 @@ func (a *App) xrayReleases() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	releases, err := xray.StableReleases(ctx, "https://api.github.com/repos/XTLS/Xray-core/tags?per_page=20", 5)
+	releases, err := xray.Releases(ctx, "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=20", 5)
 	if err == nil && len(releases) > 0 {
-		fmt.Fprintln(a.output, "\n[信息] 最新的 Xray 稳定版本:")
+		fmt.Fprintln(a.output, "\n[信息] 最近的 Xray Release（包含预发布版本）:")
 		for index, release := range releases {
 			fmt.Fprintf(a.output, "%d. %s\n", index+1, release.TagName)
 		}
@@ -349,7 +349,7 @@ func (a *App) xrayReleases() error {
 	}
 	apiErr := err
 	if apiErr == nil {
-		apiErr = fmt.Errorf("未获取到可用的稳定版本")
+		apiErr = fmt.Errorf("未获取到可用的 Release")
 	}
 	rewriters := []githuburl.Rewriter{{}}
 	if data.Settings.GitHubMirror != "" {
@@ -374,17 +374,17 @@ func (a *App) xrayReleases() error {
 		if rewriteErr != nil {
 			return rewriteErr
 		}
-		release, pageErr := xray.LatestStableRelease(ctx, endpoint)
+		release, pageErr := xray.LatestRelease(ctx, endpoint)
 		if pageErr == nil {
-			fmt.Fprintf(a.output, "\n[信息] 最新的 Xray 稳定版本（Release 页面回退）:\n1. %s\n", release.TagName)
+			fmt.Fprintf(a.output, "\n[信息] 最新的 Xray Release（Release 页面回退，不保证为稳定版）:\n1. %s\n", release.TagName)
 			return nil
 		}
 		err = pageErr
 	}
 	if err != nil {
-		return fmt.Errorf("获取 Xray 稳定版本失败（GitHub API: %v；Release 页面: %w）", apiErr, err)
+		return fmt.Errorf("获取 Xray Release 失败（GitHub API: %v；Release 页面: %w）", apiErr, err)
 	}
-	return fmt.Errorf("未获取到可用的 Xray 稳定版本")
+	return fmt.Errorf("未获取到可用的 Xray Release")
 }
 
 func (a *App) config(args []string) error {
@@ -1478,7 +1478,7 @@ func (a *App) printHelp() {
 
 内核管理:
   core show                     查看内核路径和版本
-  core releases                 查看 Xray 稳定版
+  core releases                 查看最近 Xray Release（包含预发布版本）
   core install --version 版本 [--dir 目录]
     --version 版本              要安装的 Xray 版本，例如 v26.3.27（必填）
     --dir 目录                  指定安装目录；省略时使用默认目录
