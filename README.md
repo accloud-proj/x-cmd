@@ -107,8 +107,8 @@ x-cmd github-mirror delete
 ```sh
 x-cmd core show
 x-cmd core releases
-x-cmd core install --version v26.3.27
-x-cmd core install --version v26.3.27 --dir /path/to/xray
+x-cmd core install --version v16.11.9
+x-cmd core install --version v16.11.9 --dir /path/to/xray
 x-cmd config set --xray-path /path/to/xray
 ```
 
