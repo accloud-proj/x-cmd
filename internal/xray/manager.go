@@ -97,7 +97,7 @@ func Version(ctx context.Context, binary string) (string, error) {
 
 func Install(ctx context.Context, version, baseURL, destination string, progress io.Writer) (string, error) {
 	if version == "" {
-		return "", fmt.Errorf("必须指定版本，例如 v16.11.9")
+		return "", fmt.Errorf("必须指定版本，例如 v26.11.9")
 	}
 	if destination == "" {
 		destination = defaultInstallDir()

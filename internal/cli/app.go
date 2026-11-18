@@ -1246,7 +1246,7 @@ func (a *App) interactiveCore() error {
 		case "2":
 			err = a.core([]string{"releases"})
 		case "3":
-			err = a.core([]string{"install", "--version", a.prompt("版本（例如 v16.11.9）")})
+			err = a.core([]string{"install", "--version", a.prompt("版本（例如 v26.11.9）")})
 		default:
 			a.invalidMenuChoice()
 			continue
@@ -1480,7 +1480,7 @@ func (a *App) printHelp() {
   core show                     查看内核路径和版本
   core releases                 查看最近 Xray Release（包含预发布版本）
   core install --version 版本 [--dir 目录]
-    --version 版本              要安装的 Xray 版本，例如 v16.11.9（必填）
+    --version 版本              要安装的 Xray 版本，例如 v26.11.9（必填）
     --dir 目录                  指定安装目录；省略时使用默认目录
 
 节点管理:
